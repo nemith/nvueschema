@@ -300,11 +300,6 @@ func collapseShowName(n *showNode) (string, *showNode) {
 }
 
 func printShowTree(n *showNode, prefix string) {
-	dim := gchalk.Dim
-	yellow := gchalk.Yellow
-	cyan := gchalk.Cyan
-	bold := gchalk.Bold
-
 	for i, child := range n.children {
 		displayName, effective := collapseShowName(child)
 
@@ -315,24 +310,8 @@ func printShowTree(n *showNode, prefix string) {
 		}
 
 		var line strings.Builder
-		line.WriteString(bold(displayName))
-		if len(effective.typeSegs) > 0 {
-			line.WriteString(" [")
-			for _, seg := range effective.typeSegs {
-				if seg.literal {
-					line.WriteString(gchalk.Magenta(seg.text))
-				} else {
-					line.WriteString(yellow(seg.text))
-				}
-			}
-			line.WriteString("]")
-		}
-		if effective.defaultVal != "" {
-			line.WriteString(" " + cyan("(default: "+effective.defaultVal+")"))
-		}
-		if effective.desc != "" {
-			line.WriteString("  " + dim(effective.desc))
-		}
+		line.WriteString(gchalk.Bold(displayName))
+		renderNodeDetail(&line, effective.typeSegs, effective.defaultVal, effective.desc)
 
 		fmt.Fprintf(os.Stdout, "%s%s%s\n", prefix, connector, line.String())
 
@@ -348,10 +327,6 @@ func printShowTree(n *showNode, prefix string) {
 
 // printShowFlat renders the tree as flat lines with full dotted paths.
 func printShowFlat(n *showNode, pathPrefix string) {
-	dim := gchalk.Dim
-	yellow := gchalk.Yellow
-	cyan := gchalk.Cyan
-
 	for _, child := range n.children {
 		displayName, effective := collapseShowName(child)
 
@@ -362,26 +337,7 @@ func printShowFlat(n *showNode, pathPrefix string) {
 
 		var line strings.Builder
 		line.WriteString(fullPath)
-
-		if len(effective.typeSegs) > 0 {
-			line.WriteString(" [")
-			for _, seg := range effective.typeSegs {
-				if seg.literal {
-					line.WriteString(gchalk.Magenta(seg.text))
-				} else {
-					line.WriteString(yellow(seg.text))
-				}
-			}
-			line.WriteString("]")
-		}
-
-		if effective.defaultVal != "" {
-			line.WriteString(" " + cyan("(default: "+effective.defaultVal+")"))
-		}
-
-		if effective.desc != "" {
-			line.WriteString("  " + dim(effective.desc))
-		}
+		renderNodeDetail(&line, effective.typeSegs, effective.defaultVal, effective.desc)
 
 		fmt.Println(line.String())
 

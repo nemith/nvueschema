@@ -537,7 +537,6 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 	red := gchalk.Red
 	green := gchalk.Green
 	yellow := gchalk.Yellow
-	dim := gchalk.Dim
 	bold := gchalk.Bold
 
 	// The effective node after collapsing single-child chains.
@@ -546,8 +545,6 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 	if !isRoot {
 		displayName, effective = collapseName(n)
 	}
-
-	cyan := gchalk.Cyan
 
 	// For add/remove nodes with a single change, render inline (like show).
 	// This covers both leaves (with type info) and branches (with just desc).
@@ -581,23 +578,7 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 		}
 
 		if inlineChange != nil {
-			if len(inlineChange.TypeSegs) > 0 {
-				line.WriteString(" [")
-				for _, seg := range inlineChange.TypeSegs {
-					if seg.literal {
-						line.WriteString(gchalk.Magenta(seg.text))
-					} else {
-						line.WriteString(yellow(seg.text))
-					}
-				}
-				line.WriteString("]")
-			}
-			if inlineChange.DefaultVal != "" {
-				line.WriteString(" " + cyan("(default: "+inlineChange.DefaultVal+")"))
-			}
-			if inlineChange.Desc != "" {
-				line.WriteString("  " + dim(inlineChange.Desc))
-			}
+			renderNodeDetail(&line, inlineChange.TypeSegs, inlineChange.DefaultVal, inlineChange.Desc)
 		}
 
 		fmt.Printf("%s%s%s\n", prefix, connector, line.String())
@@ -627,10 +608,7 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 			continue
 		}
 
-		var line strings.Builder
-		line.WriteString(dim(c.Desc))
-
-		fmt.Printf("%s    %s\n", childPrefix, line.String())
+		fmt.Printf("%s    %s\n", childPrefix, gchalk.Dim(c.Desc))
 	}
 
 	// Recurse into children.
@@ -667,43 +645,19 @@ func uniformKind(n *diffNode) string {
 }
 
 func printDiffFlat(changes []Change) {
-	green := gchalk.Green
-	red := gchalk.Red
-	yellow := gchalk.Yellow
-	cyan := gchalk.Cyan
-	dim := gchalk.Dim
-
 	for _, c := range changes {
 		var line strings.Builder
 
 		switch c.Kind {
 		case "added":
-			line.WriteString(green("+") + " " + c.Path)
+			line.WriteString(gchalk.Green("+") + " " + c.Path)
 		case "removed":
-			line.WriteString(red("-") + " " + c.Path)
+			line.WriteString(gchalk.Red("-") + " " + c.Path)
 		case "changed":
-			line.WriteString(yellow("~") + " " + c.Path)
+			line.WriteString(gchalk.Yellow("~") + " " + c.Path)
 		}
 
-		if len(c.TypeSegs) > 0 {
-			line.WriteString(" [")
-			for _, seg := range c.TypeSegs {
-				if seg.literal {
-					line.WriteString(gchalk.Magenta(seg.text))
-				} else {
-					line.WriteString(yellow(seg.text))
-				}
-			}
-			line.WriteString("]")
-		}
-
-		if c.DefaultVal != "" {
-			line.WriteString(" " + cyan("(default: "+c.DefaultVal+")"))
-		}
-
-		if c.Desc != "" {
-			line.WriteString("  " + dim(c.Desc))
-		}
+		renderNodeDetail(&line, c.TypeSegs, c.DefaultVal, c.Desc)
 
 		fmt.Println(line.String())
 	}
