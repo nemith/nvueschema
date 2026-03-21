@@ -13,7 +13,7 @@ import (
 func newShowCmd() *cobra.Command {
 	var (
 		noCache bool
-		path    string
+		paths   []string
 	)
 
 	cmd := &cobra.Command{
@@ -23,12 +23,13 @@ func newShowCmd() *cobra.Command {
 Display the full NVUE configuration schema as a tree with types
 and constraints.
 
-Use --path to show only a subtree.
+Use --path to show only specific subtrees (repeatable).
 
 Examples:
   cumulus-schema show 5.16
   cumulus-schema show 5.14 --path bridge
-  cumulus-schema show 5.16 --path interface.[*].ip
+  cumulus-schema show 5.16 --path interface --path system
+  cumulus-schema show 5.16 --path vrf.[*].router.bgp
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -42,25 +43,28 @@ Examples:
 				return fmt.Errorf("extracting config: %w", err)
 			}
 
-			root := flattenComposite(schema)
+			if len(paths) == 0 {
+				tree := buildShowTree("(root)", flattenComposite(schema))
+				printShowTree(tree, "")
+				return nil
+			}
 
-			// Navigate to subtree if --path given.
-			if path != "" {
-				root, err = navigateTo(root, path)
+			for _, p := range paths {
+				root, err := navigateTo(flattenComposite(schema), p)
 				if err != nil {
 					return err
 				}
+				fmt.Fprintf(os.Stderr, "%s:\n", p)
+				tree := buildShowTree("(root)", root)
+				printShowTree(tree, "")
+				fmt.Println()
 			}
-
-			tree := buildShowTree("(root)", root)
-			printShowTree(tree, "")
-
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
-	cmd.Flags().StringVar(&path, "path", "", "Show only a subtree (e.g. bridge.domain)")
+	cmd.Flags().StringArrayVar(&paths, "path", nil, "Show only a subtree (repeatable)")
 
 	return cmd
 }

@@ -56,6 +56,8 @@ func fmtDefault(v any) string {
 	}
 }
 
+
+
 // flattenComposite merges allOf, anyOf, and oneOf into a single Schema by
 // combining all their properties, additionalProperties, etc. In the NVUE
 // spec these composition keywords are used to express "this object has all

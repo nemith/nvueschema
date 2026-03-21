@@ -13,13 +13,18 @@ import (
 
 // Change represents a single schema difference.
 type Change struct {
-	Path string
-	Kind string // "added", "removed", "changed"
-	Desc string
+	Path       string
+	Kind       string // "added", "removed", "changed"
+	Desc       string
+	TypeSegs   []typeSegment // type info for added/removed leaves
+	DefaultVal string        // default value for added/removed leaves
 }
 
 func newDiffCmd() *cobra.Command {
-	var noCache bool
+	var (
+		noCache bool
+		paths   []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "diff <old-spec-or-version> <new-spec-or-version>",
@@ -29,11 +34,13 @@ Compare the config schemas of two Cumulus Linux versions and show
 what was added, removed, or changed.
 
 Arguments can be file paths or version strings (e.g. "5.14").
+Use --path to filter to specific subtrees (repeatable).
 
 Examples:
   cumulus-schema diff 5.14 5.16
-  cumulus-schema diff 5.10 5.14
-  cumulus-schema diff old-spec.json 5.16
+  cumulus-schema diff 5.0 5.16 --path interface
+  cumulus-schema diff 5.0 5.16 --path interface --path system
+  cumulus-schema diff 5.0 5.16 --path vrf.[*].router.bgp
 `),
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -56,6 +63,12 @@ Examples:
 			}
 
 			changes := diffSchemas(oldSchema, newSchema, "")
+
+			// Filter to requested paths.
+			if len(paths) > 0 {
+				changes = filterChanges(changes, paths)
+			}
+
 			if len(changes) == 0 {
 				fmt.Fprintln(os.Stderr, "No differences found.")
 				return nil
@@ -88,6 +101,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
+	cmd.Flags().StringArrayVar(&paths, "path", nil, "Filter to a subtree (repeatable)")
 
 	return cmd
 }
@@ -102,25 +116,19 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 	oldProps := propNames(oldFlat)
 	newProps := propNames(newFlat)
 
-	// Removed properties.
+	// Removed properties — emit with inline type for leaves, recurse for objects.
 	for _, name := range oldProps {
 		if !hasProperty(newFlat, name) {
-			changes = append(changes, Change{
-				Path: joinPath(path, name),
-				Kind: "removed",
-				Desc: propDescription(oldFlat, name),
-			})
+			childPath := joinPath(path, name)
+			changes = append(changes, makeAddRemoveChange(oldFlat.Properties[name], childPath, "removed")...)
 		}
 	}
 
-	// Added properties.
+	// Added properties — emit with inline type for leaves, recurse for objects.
 	for _, name := range newProps {
 		if !hasProperty(oldFlat, name) {
-			changes = append(changes, Change{
-				Path: joinPath(path, name),
-				Kind: "added",
-				Desc: propDescription(newFlat, name),
-			})
+			childPath := joinPath(path, name)
+			changes = append(changes, makeAddRemoveChange(newFlat.Properties[name], childPath, "added")...)
 		}
 	}
 
@@ -140,6 +148,30 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 				Kind: "changed",
 				Desc: desc,
 			})
+
+			// If type changed from scalar to object, show new fields as added.
+			// If type changed from object to scalar, show old fields as removed.
+			oldChildFlat := flattenComposite(oldChild)
+			newChildFlat := flattenComposite(newChild)
+			if !hasProps(oldChildFlat) && hasProps(newChildFlat) {
+				for _, n := range propNames(newChildFlat) {
+					changes = append(changes, Change{
+						Path: joinPath(childPath, n),
+						Kind: "added",
+						Desc: propDescription(newChildFlat, n),
+					})
+				}
+				changes = append(changes, diffSchemas(&Schema{}, newChild, childPath)...)
+			} else if hasProps(oldChildFlat) && !hasProps(newChildFlat) {
+				for _, n := range propNames(oldChildFlat) {
+					changes = append(changes, Change{
+						Path: joinPath(childPath, n),
+						Kind: "removed",
+						Desc: propDescription(oldChildFlat, n),
+					})
+				}
+			}
+			continue
 		}
 
 		// Check for enum changes.
@@ -169,6 +201,43 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 			newAP = &Schema{}
 		}
 		changes = append(changes, diffSchemas(oldAP, newAP, joinPath(path, "[*]"))...)
+	}
+
+	return changes
+}
+
+// makeAddRemoveChange creates a Change for an added or removed property.
+// Leaves get inline type info. Objects recurse to show their children.
+func makeAddRemoveChange(s *Schema, path, kind string) []Change {
+	flat := flattenComposite(s)
+
+	c := Change{
+		Path: path,
+		Kind: kind,
+		Desc: shortDesc(flat.Description),
+	}
+
+	// Leaf — attach type info inline.
+	if !hasProps(flat) && flat.AdditionalProperties == nil {
+		c.TypeSegs, c.DefaultVal = leafTypeSegs(s)
+		return []Change{c}
+	}
+
+	// Object/map — emit the node, then recurse into children.
+	var changes []Change
+	changes = append(changes, c)
+
+	for _, name := range propNames(flat) {
+		childPath := joinPath(path, name)
+		changes = append(changes, makeAddRemoveChange(flat.Properties[name], childPath, kind)...)
+	}
+
+	// Recurse into additionalProperties (dict values).
+	if flat.AdditionalProperties != nil {
+		apFlat := flattenComposite(flat.AdditionalProperties)
+		if hasProps(apFlat) {
+			changes = append(changes, makeAddRemoveChange(flat.AdditionalProperties, joinPath(path, "[*]"), kind)...)
+		}
 	}
 
 	return changes
@@ -210,9 +279,13 @@ func effectiveType(s *Schema) string {
 		return s.Type + "(" + s.Format + ")"
 	}
 	if s.Type != "" {
+		// Distinguish struct-like objects from map-like objects.
+		if s.Type == "object" && s.AdditionalProperties != nil && !hasProps(s) {
+			return "map"
+		}
 		return s.Type
 	}
-	if s.Properties != nil {
+	if hasProps(s) {
 		return "object"
 	}
 	if s.AdditionalProperties != nil {
@@ -463,6 +536,18 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 		displayName, effective = collapseName(n)
 	}
 
+	cyan := gchalk.Cyan
+
+	// For add/remove nodes with a single change, render inline (like show).
+	// This covers both leaves (with type info) and branches (with just desc).
+	var inlineChange *Change
+	if !isRoot && len(effective.changes) == 1 {
+		c := &effective.changes[0]
+		if c.Kind == "added" || c.Kind == "removed" {
+			inlineChange = c
+		}
+	}
+
 	if !isRoot {
 		connector := "├── "
 		if isLast {
@@ -470,15 +555,46 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 		}
 
 		kind := uniformKind(effective)
-		label := bold(displayName)
+
+		var line strings.Builder
 		switch kind {
 		case "added":
-			label = green("+") + " " + bold(displayName)
+			line.WriteString(green("+") + " " + bold(displayName))
 		case "removed":
-			label = red("-") + " " + bold(displayName)
+			line.WriteString(red("-") + " " + bold(displayName))
+		case "changed":
+			line.WriteString(yellow("~") + " " + bold(displayName))
+		default:
+			// Mixed changes — show as changed.
+			line.WriteString(yellow("~") + " " + bold(displayName))
 		}
 
-		fmt.Printf("%s%s%s\n", prefix, connector, label)
+		if inlineChange != nil {
+			if len(inlineChange.TypeSegs) > 0 {
+				line.WriteString(" [")
+				for _, seg := range inlineChange.TypeSegs {
+					if seg.literal {
+						line.WriteString(gchalk.Magenta(seg.text))
+					} else {
+						line.WriteString(yellow(seg.text))
+					}
+				}
+				line.WriteString("]")
+			}
+			if inlineChange.DefaultVal != "" {
+				line.WriteString(" " + cyan("(default: "+inlineChange.DefaultVal+")"))
+			}
+			if inlineChange.Desc != "" {
+				line.WriteString("  " + dim(inlineChange.Desc))
+			}
+		}
+
+		fmt.Printf("%s%s%s\n", prefix, connector, line.String())
+	}
+
+	// If we rendered everything inline and there are no children, we're done.
+	if inlineChange != nil && len(effective.children) == 0 {
+		return
 	}
 
 	// Build the prefix for children.
@@ -491,41 +607,24 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 		}
 	}
 
-	// Count total children (detail lines + child nodes) for "last" tracking.
-	detailCount := 0
-	for _, c := range effective.changes {
-		if c.Desc != "" {
-			detailCount++
+	// Print change detail lines (plain indented, not part of the tree).
+	for i, c := range effective.changes {
+		if inlineChange != nil && i == 0 {
+			continue // already rendered inline
 		}
-	}
-	totalItems := detailCount + len(effective.children)
-	itemIdx := 0
-
-	// Print detail lines for changes at this node.
-	for _, c := range effective.changes {
-		if c.Desc == "" {
+		if c.Desc == "" && len(c.TypeSegs) == 0 {
 			continue
 		}
-		itemIdx++
-		connector := "├── "
-		if itemIdx == totalItems {
-			connector = "└── "
-		}
 
-		switch c.Kind {
-		case "added":
-			fmt.Printf("%s%s%s %s\n", childPrefix, connector, green("+"), dim(c.Desc))
-		case "removed":
-			fmt.Printf("%s%s%s %s\n", childPrefix, connector, red("-"), dim(c.Desc))
-		case "changed":
-			fmt.Printf("%s%s%s %s\n", childPrefix, connector, yellow("~"), dim(c.Desc))
-		}
+		var line strings.Builder
+		line.WriteString(dim(c.Desc))
+
+		fmt.Printf("%s    %s\n", childPrefix, line.String())
 	}
 
 	// Recurse into children.
-	for _, child := range effective.children {
-		itemIdx++
-		last := itemIdx == totalItems
+	for i, child := range effective.children {
+		last := i == len(effective.children)-1
 		printDiffTree(child, childPrefix, last, false)
 	}
 }
