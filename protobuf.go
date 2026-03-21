@@ -1,11 +1,12 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 // WriteProtobuf outputs the config schema as a .proto file.
@@ -356,8 +357,8 @@ func newProtobufFormat() *Format {
 		Name:        "protobuf",
 		Aliases:     []string{"proto"},
 		Description: "Proto3 messages",
-		Flags: func(fs *flag.FlagSet) {
-			fs.BoolVar(&validate, "validate", false, "Include buf protovalidate constraints")
+		Register: func(cmd *cobra.Command) {
+			cmd.Flags().BoolVar(&validate, "validate", false, "Include buf protovalidate constraints")
 		},
 		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
 			return WriteProtobuf(w, schema, info, validate)

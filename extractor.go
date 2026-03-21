@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 )
 
@@ -48,14 +48,10 @@ type Extractor struct {
 	defToPath  map[string]string  // x-defs key -> API path (from PATCH requestBody)
 }
 
-// Load reads and parses the OpenAPI JSON file.
-func Load(path string) (*Extractor, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading spec: %w", err)
-	}
+// NewExtractor parses an OpenAPI JSON spec from an io.Reader.
+func NewExtractor(r io.Reader) (*Extractor, error) {
 	var raw RawSpec
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.NewDecoder(r).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parsing spec: %w", err)
 	}
 	e := &Extractor{
