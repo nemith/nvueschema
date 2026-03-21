@@ -276,11 +276,10 @@ func scalarPyType(s *Schema) string {
 	if len(s.Enum) > 0 {
 		var vals []string
 		for _, e := range s.Enum {
-			switch v := e.(type) {
-			case string:
+			// skip null/nil enum values — handled by Optional wrapper
+			if v, ok := e.(string); ok {
 				vals = append(vals, fmt.Sprintf("%q", v))
 			}
-			// skip null/nil enum values — handled by Optional wrapper
 		}
 		if len(vals) == 0 {
 			return "None"
@@ -442,8 +441,6 @@ func newPydanticFormat() *Format {
 		Name:        "pydantic",
 		Aliases:     []string{"py"},
 		Description: "Python Pydantic v2 models",
-		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
-			return WritePydantic(w, schema, info)
-		},
+		Write: WritePydantic,
 	}
 }

@@ -56,7 +56,7 @@ version (e.g. "5.14"), which will be fetched from NVIDIA automatically.
 
 Available formats: %s`, formatList(formats)),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			f := lookupFormat(formats, formatName)
 			if f == nil {
 				return fmt.Errorf("unknown format %q\navailable: %s", formatName, formatList(formats))

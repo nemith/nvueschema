@@ -125,7 +125,7 @@ func httpFetch(url, ifModSince string) (body []byte, lastMod string, notModified
 		fmt.Fprintf(os.Stderr, "Fetching %s\n", url)
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -139,7 +139,6 @@ func httpFetch(url, ifModSince string) (body []byte, lastMod string, notModified
 		return nil, "", false, fmt.Errorf("downloading: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode == http.StatusNotModified {
 		return nil, "", true, nil
 	}
@@ -196,7 +195,7 @@ Examples:
   cumulus-schema fetch 5.5 --no-cache
 `),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			v, err := parseVersion(args[0])
 			if err != nil {
 				return err

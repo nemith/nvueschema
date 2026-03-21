@@ -316,12 +316,9 @@ var goAcronyms = map[string]bool{
 // writeWrappedComment writes text as comment lines, wrapping at maxWidth.
 func writeWrappedComment(w io.Writer, text string, prefix string, maxWidth int) {
 	text = strings.TrimRight(text, "\n")
-	contentWidth := maxWidth - len(prefix)
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
+	contentWidth := max(maxWidth-len(prefix), 20)
 
-	for _, paragraph := range strings.Split(text, "\n") {
+	for paragraph := range strings.SplitSeq(text, "\n") {
 		paragraph = strings.TrimSpace(paragraph)
 		if paragraph == "" {
 			fmt.Fprintf(w, "%s\n", strings.TrimRight(prefix, " "))
@@ -331,11 +328,12 @@ func writeWrappedComment(w io.Writer, text string, prefix string, maxWidth int) 
 		words := strings.Fields(paragraph)
 		line := ""
 		for _, word := range words {
-			if line == "" {
+			switch {
+			case line == "":
 				line = word
-			} else if len(line)+1+len(word) <= contentWidth {
+			case len(line)+1+len(word) <= contentWidth:
 				line += " " + word
-			} else {
+			default:
 				fmt.Fprintf(w, "%s%s\n", prefix, line)
 				line = word
 			}
@@ -351,8 +349,6 @@ func newGoFormat() *Format {
 		Name:        "go",
 		Aliases:     []string{"golang"},
 		Description: "Go structs with json/yaml tags",
-		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
-			return WriteGoStructs(w, schema, info)
-		},
+		Write:       WriteGoStructs,
 	}
 }

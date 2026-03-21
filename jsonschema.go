@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 )
 
 // WriteJSONSchema outputs the config schema as a standalone JSON Schema draft-07 document.
@@ -175,9 +176,7 @@ func scalarUnionToJSONSchema(s *Schema) map[string]any {
 
 	if len(schemas) == 1 {
 		// Unwrap single-variant.
-		for k, v := range schemas[0] {
-			out[k] = v
-		}
+		maps.Copy(out, schemas[0])
 	} else {
 		out["anyOf"] = schemas
 	}
@@ -357,8 +356,6 @@ func newJSONSchemaFormat() *Format {
 		Name:        "jsonschema",
 		Aliases:     []string{"js"},
 		Description: "JSON Schema 2020-12",
-		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
-			return WriteJSONSchema(w, schema, info)
-		},
+		Write:       WriteJSONSchema,
 	}
 }

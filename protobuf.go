@@ -43,7 +43,6 @@ type protoGen struct {
 	w        io.Writer
 	messages map[string]bool
 	validate bool
-	fieldNum int
 }
 
 func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
@@ -97,7 +96,7 @@ func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
 
 	// Emit the message.
 	if merged.Description != "" {
-		for _, line := range strings.Split(strings.TrimRight(merged.Description, "\n"), "\n") {
+		for line := range strings.SplitSeq(strings.TrimRight(merged.Description, "\n"), "\n") {
 			fmt.Fprintf(g.w, "%s// %s\n", indent, line)
 		}
 	}
@@ -128,21 +127,22 @@ func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
 			fmt.Fprintln(g.w)
 		}
 		if flat.Description != "" {
-			for _, line := range strings.Split(strings.TrimRight(flat.Description, "\n"), "\n") {
+			for line := range strings.SplitSeq(strings.TrimRight(flat.Description, "\n"), "\n") {
 				fmt.Fprintf(g.w, "%s  // %s\n", indent, line)
 			}
 		}
 
-		if protoType.repeated {
+		switch {
+		case protoType.repeated:
 			fmt.Fprintf(g.w, "%s  repeated %s %s = %d%s;\n",
 				indent, protoType.typeName, fieldName, fieldNum, constraint)
-		} else if protoType.isMap {
+		case protoType.isMap:
 			fmt.Fprintf(g.w, "%s  map<string, %s> %s = %d%s;\n",
 				indent, protoType.typeName, fieldName, fieldNum, constraint)
-		} else if protoType.optional {
+		case protoType.optional:
 			fmt.Fprintf(g.w, "%s  optional %s %s = %d%s;\n",
 				indent, protoType.typeName, fieldName, fieldNum, constraint)
-		} else {
+		default:
 			fmt.Fprintf(g.w, "%s  %s %s = %d%s;\n",
 				indent, protoType.typeName, fieldName, fieldNum, constraint)
 		}
@@ -154,9 +154,9 @@ func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
 
 type protoTypeInfo struct {
 	typeName string
-	optional  bool
-	repeated  bool
-	isMap     bool
+	optional bool
+	repeated bool
+	isMap    bool
 }
 
 func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {

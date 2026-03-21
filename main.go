@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,10 +25,8 @@ func lookupFormat(formats []*Format, name string) *Format {
 		if f.Name == name {
 			return f
 		}
-		for _, a := range f.Aliases {
-			if a == name {
-				return f
-			}
+		if slices.Contains(f.Aliases, name) {
+			return f
 		}
 	}
 	return nil
@@ -55,6 +54,8 @@ func main() {
 	root.AddCommand(newGenerateCmd())
 	root.AddCommand(newFetchCmd())
 	root.AddCommand(newValidateCmd())
+	root.AddCommand(newDiffCmd())
+	root.AddCommand(newShowCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

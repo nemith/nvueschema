@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 )
 
 // WriteOpenAPI outputs a minimal OpenAPI 3.0 spec containing only the config schema.
@@ -37,9 +38,7 @@ func WriteOpenAPI(w io.Writer, schema *Schema, info map[string]any) error {
 
 	// OpenAPI 3.1 supports $defs inline in schemas, but for cleaner output
 	// put format definitions under components/schemas.
-	for name, def := range formatDefs() {
-		doc["components"].(map[string]any)["schemas"].(map[string]any)[name] = def
-	}
+	maps.Copy(doc["components"].(map[string]any)["schemas"].(map[string]any), formatDefs())
 
 	// Rewrite $ref paths from #/$defs/ to #/components/schemas/ for OpenAPI.
 	rewriteRefs(doc)
@@ -73,8 +72,6 @@ func newOpenAPIFormat() *Format {
 		Name:        "openapi",
 		Aliases:     []string{"oas"},
 		Description: "Minimal OpenAPI 3.1 spec with config schema only",
-		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
-			return WriteOpenAPI(w, schema, info)
-		},
+		Write:       WriteOpenAPI,
 	}
 }

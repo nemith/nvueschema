@@ -86,8 +86,8 @@ func (e *Extractor) buildDefToPath() {
 				// Also map the inner schema ref if we can resolve it
 				if inner, ok := e.raw.XDefs[name]; ok {
 					if content, ok := inner["content"].(map[string]any); ok {
-						if appJson, ok := content["application/json"].(map[string]any); ok {
-							if schemaRef, ok := appJson["schema"].(map[string]any); ok {
+						if appJSON, ok := content["application/json"].(map[string]any); ok {
+							if schemaRef, ok := appJSON["schema"].(map[string]any); ok {
 								if ref2, ok := schemaRef["$ref"].(string); ok {
 									if name2 := refToDefName(ref2); name2 != "" {
 										e.defToPath[name2] = apiPath

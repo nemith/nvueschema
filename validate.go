@@ -36,7 +36,7 @@ Examples:
   cumulus-schema validate 5.14 config.txt --config-format yaml
 `),
 		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			// Load and extract schema.
 			ext, err := resolveSpec(args[0], noCache)
 			if err != nil {
