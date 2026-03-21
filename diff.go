@@ -22,8 +22,9 @@ type Change struct {
 
 func newDiffCmd() *cobra.Command {
 	var (
-		noCache bool
-		paths   []string
+		noCache    bool
+		paths      []string
+		outputMode string
 	)
 
 	cmd := &cobra.Command{
@@ -35,12 +36,12 @@ what was added, removed, or changed.
 
 Arguments can be file paths or version strings (e.g. "5.14").
 Use --path to filter to specific subtrees (repeatable).
+Use --output flat for a greppable output with full paths.
 
 Examples:
   cumulus-schema diff 5.14 5.16
   cumulus-schema diff 5.0 5.16 --path interface
-  cumulus-schema diff 5.0 5.16 --path interface --path system
-  cumulus-schema diff 5.0 5.16 --path vrf.[*].router.bgp
+  cumulus-schema diff 5.0 5.16 -O flat | grep bgp
 `),
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -78,8 +79,12 @@ Examples:
 				return changes[i].Path < changes[j].Path
 			})
 
-			tree := buildDiffTree(changes)
-			printDiffTree(tree, "", false, true)
+			if outputMode == "flat" {
+				printDiffFlat(changes)
+			} else {
+				tree := buildDiffTree(changes)
+				printDiffTree(tree, "", false, true)
+			}
 
 			var added, removed, changed int
 			for _, c := range changes {
@@ -102,6 +107,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
 	cmd.Flags().StringArrayVar(&paths, "path", nil, "Filter to a subtree (repeatable)")
+	cmd.Flags().StringVarP(&outputMode, "output", "O", "tree", "Output mode: tree or flat")
 
 	return cmd
 }
@@ -223,7 +229,12 @@ func makeAddRemoveChange(s *Schema, path, kind string) []Change {
 		return []Change{c}
 	}
 
-	// Object/map — emit the node, then recurse into children.
+	// Object/map — add type, emit the node, then recurse into children.
+	if flat.AdditionalProperties != nil {
+		c.TypeSegs = []typeSegment{{text: "map", literal: false}}
+	} else {
+		c.TypeSegs = []typeSegment{{text: "object", literal: false}}
+	}
 	var changes []Change
 	changes = append(changes, c)
 
@@ -653,4 +664,47 @@ func uniformKind(n *diffNode) string {
 		return kind
 	}
 	return ""
+}
+
+func printDiffFlat(changes []Change) {
+	green := gchalk.Green
+	red := gchalk.Red
+	yellow := gchalk.Yellow
+	cyan := gchalk.Cyan
+	dim := gchalk.Dim
+
+	for _, c := range changes {
+		var line strings.Builder
+
+		switch c.Kind {
+		case "added":
+			line.WriteString(green("+") + " " + c.Path)
+		case "removed":
+			line.WriteString(red("-") + " " + c.Path)
+		case "changed":
+			line.WriteString(yellow("~") + " " + c.Path)
+		}
+
+		if len(c.TypeSegs) > 0 {
+			line.WriteString(" [")
+			for _, seg := range c.TypeSegs {
+				if seg.literal {
+					line.WriteString(gchalk.Magenta(seg.text))
+				} else {
+					line.WriteString(yellow(seg.text))
+				}
+			}
+			line.WriteString("]")
+		}
+
+		if c.DefaultVal != "" {
+			line.WriteString(" " + cyan("(default: "+c.DefaultVal+")"))
+		}
+
+		if c.Desc != "" {
+			line.WriteString("  " + dim(c.Desc))
+		}
+
+		fmt.Println(line.String())
+	}
 }

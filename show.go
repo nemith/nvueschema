@@ -12,8 +12,9 @@ import (
 
 func newShowCmd() *cobra.Command {
 	var (
-		noCache bool
-		paths   []string
+		noCache    bool
+		paths      []string
+		outputMode string
 	)
 
 	cmd := &cobra.Command{
@@ -24,12 +25,12 @@ Display the full NVUE configuration schema as a tree with types
 and constraints.
 
 Use --path to show only specific subtrees (repeatable).
+Use --output flat for a greppable output with full paths.
 
 Examples:
   cumulus-schema show 5.16
   cumulus-schema show 5.14 --path bridge
-  cumulus-schema show 5.16 --path interface --path system
-  cumulus-schema show 5.16 --path vrf.[*].router.bgp
+  cumulus-schema show 5.16 -O flat | grep bgp
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -43,9 +44,14 @@ Examples:
 				return fmt.Errorf("extracting config: %w", err)
 			}
 
+			printer := printShowTree
+			if outputMode == "flat" {
+				printer = printShowFlat
+			}
+
 			if len(paths) == 0 {
 				tree := buildShowTree("(root)", flattenComposite(schema))
-				printShowTree(tree, "")
+				printer(tree, "")
 				return nil
 			}
 
@@ -54,10 +60,14 @@ Examples:
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(os.Stderr, "%s:\n", p)
+				if outputMode != "flat" {
+					fmt.Fprintf(os.Stderr, "%s:\n", p)
+				}
 				tree := buildShowTree("(root)", root)
-				printShowTree(tree, "")
-				fmt.Println()
+				printer(tree, "")
+				if outputMode != "flat" {
+					fmt.Println()
+				}
 			}
 			return nil
 		},
@@ -65,6 +75,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
 	cmd.Flags().StringArrayVar(&paths, "path", nil, "Show only a subtree (repeatable)")
+	cmd.Flags().StringVarP(&outputMode, "output", "O", "tree", "Output mode: tree or flat")
 
 	return cmd
 }
@@ -141,7 +152,11 @@ func buildShowTree(name string, s *Schema) *showNode {
 		if childFlat.AdditionalProperties != nil {
 			apFlat := flattenComposite(childFlat.AdditionalProperties)
 			if hasProps(apFlat) {
-				dictNode := &showNode{name: p.name}
+				dictNode := &showNode{
+					name:     p.name,
+					typeSegs: []typeSegment{{text: "map", literal: false}},
+					desc:     shortDesc(childFlat.Description),
+				}
 				starNode := buildShowTree("[*]", childFlat.AdditionalProperties)
 				dictNode.children = append(dictNode.children, starNode)
 				node.children = append(node.children, dictNode)
@@ -151,7 +166,10 @@ func buildShowTree(name string, s *Schema) *showNode {
 
 		// Nested object.
 		if hasProps(childFlat) {
-			node.children = append(node.children, buildShowTree(p.name, p.schema))
+			child := buildShowTree(p.name, p.schema)
+			child.typeSegs = []typeSegment{{text: "object", literal: false}}
+			child.desc = shortDesc(childFlat.Description)
+			node.children = append(node.children, child)
 			continue
 		}
 
@@ -325,5 +343,48 @@ func printShowTree(n *showNode, prefix string) {
 			childPrefix += "│   "
 		}
 		printShowTree(effective, childPrefix)
+	}
+}
+
+// printShowFlat renders the tree as flat lines with full dotted paths.
+func printShowFlat(n *showNode, pathPrefix string) {
+	dim := gchalk.Dim
+	yellow := gchalk.Yellow
+	cyan := gchalk.Cyan
+
+	for _, child := range n.children {
+		displayName, effective := collapseShowName(child)
+
+		fullPath := displayName
+		if pathPrefix != "" {
+			fullPath = pathPrefix + "." + displayName
+		}
+
+		var line strings.Builder
+		line.WriteString(fullPath)
+
+		if len(effective.typeSegs) > 0 {
+			line.WriteString(" [")
+			for _, seg := range effective.typeSegs {
+				if seg.literal {
+					line.WriteString(gchalk.Magenta(seg.text))
+				} else {
+					line.WriteString(yellow(seg.text))
+				}
+			}
+			line.WriteString("]")
+		}
+
+		if effective.defaultVal != "" {
+			line.WriteString(" " + cyan("(default: "+effective.defaultVal+")"))
+		}
+
+		if effective.desc != "" {
+			line.WriteString("  " + dim(effective.desc))
+		}
+
+		fmt.Println(line.String())
+
+		printShowFlat(effective, fullPath)
 	}
 }
