@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 const goLineWidth = 88
 
 // WriteGoStructs outputs the config schema as Go struct definitions with json tags.
-func WriteGoStructs(w io.Writer, schema *Schema, info map[string]any) error {
+func WriteGoStructs(w io.Writer, schema *Config, info map[string]any) error {
 	var buf bytes.Buffer
 	g := &goGen{
 		w:      &buf,
@@ -84,17 +84,17 @@ type goGen struct {
 	models map[string]bool
 }
 
-func (g *goGen) emitStruct(name string, s *Schema) {
+func (g *goGen) emitStruct(name string, s *Config) {
 	if g.models[name] {
 		return
 	}
 	g.models[name] = true
 
-	merged := flattenComposite(s)
+	merged := FlattenComposite(s)
 
 	type propEntry struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []propEntry
 	if merged.Properties != nil {
@@ -110,12 +110,12 @@ func (g *goGen) emitStruct(name string, s *Schema) {
 		if isScalarUnion(p.schema) {
 			continue
 		}
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 		if hasProps(flat) {
 			g.emitStruct(childName, p.schema)
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				g.emitStruct(childName+"Entry", flat.AdditionalProperties)
 			}
@@ -137,7 +137,7 @@ func (g *goGen) emitStruct(name string, s *Schema) {
 		fieldName := goPublic(p.name)
 		jsonTag := p.name
 
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 
 		if i > 0 {
 			fmt.Fprintln(g.w)
@@ -152,7 +152,7 @@ func (g *goGen) emitStruct(name string, s *Schema) {
 	fmt.Fprintln(g.w)
 }
 
-func (g *goGen) goType(contextName string, s *Schema) string {
+func (g *goGen) goType(contextName string, s *Config) string {
 	if s == nil {
 		return "any"
 	}
@@ -161,7 +161,7 @@ func (g *goGen) goType(contextName string, s *Schema) string {
 		return "any" // Go doesn't have union types; any is the honest answer
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	if len(flat.Enum) > 0 {
 		return "string"
@@ -191,7 +191,7 @@ func (g *goGen) goType(contextName string, s *Schema) string {
 			return "*" + contextName
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				return "map[string]*" + contextName + "Entry"
 			}
@@ -206,7 +206,7 @@ func (g *goGen) goType(contextName string, s *Schema) string {
 		return "*" + contextName
 	}
 	if flat.AdditionalProperties != nil {
-		apFlat := flattenComposite(flat.AdditionalProperties)
+		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			return "map[string]*" + contextName + "Entry"
 		}
@@ -304,6 +304,7 @@ func goPublic(s string) string {
 	return name
 }
 
+// goAcronyms is the set of well-known acronyms for Go identifier generation.
 var goAcronyms = map[string]bool{
 	"ID": true, "IP": true, "TCP": true, "UDP": true, "HTTP": true,
 	"HTTPS": true, "URL": true, "API": true, "DNS": true, "MAC": true,
@@ -341,14 +342,5 @@ func writeWrappedComment(w io.Writer, text string, prefix string, maxWidth int) 
 		if line != "" {
 			fmt.Fprintf(w, "%s%s\n", prefix, line)
 		}
-	}
-}
-
-func newGoFormat() *Format {
-	return &Format{
-		Name:        "go",
-		Aliases:     []string{"golang"},
-		Description: "Go structs with json/yaml tags",
-		Write:       WriteGoStructs,
 	}
 }

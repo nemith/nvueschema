@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 )
 
 // WritePydantic outputs the config schema as Python Pydantic v2 model classes.
-func WritePydantic(w io.Writer, schema *Schema, info map[string]any) error {
+func WritePydantic(w io.Writer, schema *Config, info map[string]any) error {
 	g := &pyGen{
 		w:      w,
 		models: make(map[string]bool),
@@ -59,17 +59,17 @@ type pyGen struct {
 	models map[string]bool
 }
 
-func (g *pyGen) emitModel(name string, s *Schema) {
+func (g *pyGen) emitModel(name string, s *Config) {
 	if g.models[name] {
 		return
 	}
 	g.models[name] = true
 
-	merged := flattenComposite(s)
+	merged := FlattenComposite(s)
 
 	type propEntry struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []propEntry
 	if merged.Properties != nil {
@@ -85,12 +85,12 @@ func (g *pyGen) emitModel(name string, s *Schema) {
 		if isScalarUnion(p.schema) {
 			continue
 		}
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 		if hasProps(flat) {
 			g.emitModel(childName, p.schema)
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				g.emitModel(childName+"Entry", flat.AdditionalProperties)
 			}
@@ -126,7 +126,7 @@ func (g *pyGen) emitModel(name string, s *Schema) {
 	}
 
 	for _, p := range props {
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 		pyType := g.pyType(name+toPascal(p.name), p.schema)
 		fieldName := toSnake(p.name)
 		alias := ""
@@ -151,7 +151,7 @@ func (g *pyGen) emitModel(name string, s *Schema) {
 	fmt.Fprintln(g.w)
 }
 
-func (g *pyGen) pyType(contextName string, s *Schema) string {
+func (g *pyGen) pyType(contextName string, s *Config) string {
 	if s == nil {
 		return "Any"
 	}
@@ -161,7 +161,7 @@ func (g *pyGen) pyType(contextName string, s *Schema) string {
 		return scalarUnionType(s)
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	if len(flat.Enum) > 0 {
 		return "str"
@@ -187,7 +187,7 @@ func (g *pyGen) pyType(contextName string, s *Schema) string {
 			return contextName
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				valType := g.pyType(contextName+"Entry", flat.AdditionalProperties)
 				return fmt.Sprintf("Dict[str, %s]", valType)
@@ -201,7 +201,7 @@ func (g *pyGen) pyType(contextName string, s *Schema) string {
 		return contextName
 	}
 	if flat.AdditionalProperties != nil {
-		apFlat := flattenComposite(flat.AdditionalProperties)
+		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			valType := g.pyType(contextName+"Entry", flat.AdditionalProperties)
 			return fmt.Sprintf("Dict[str, %s]", valType)
@@ -212,47 +212,8 @@ func (g *pyGen) pyType(contextName string, s *Schema) string {
 	return "Any"
 }
 
-// sourceRefFor finds the best SourceRef from a schema or its composition branches.
-func sourceRefFor(s *Schema) string {
-	if s.SourceRef != "" {
-		return s.SourceRef
-	}
-	for _, group := range [][]*Schema{s.AllOf, s.AnyOf, s.OneOf} {
-		for _, sub := range group {
-			if sub.SourceRef != "" {
-				return sub.SourceRef
-			}
-		}
-	}
-	return ""
-}
-
-// isScalarUnion returns true if the schema is an anyOf/oneOf where every
-// branch is a scalar type (no properties, no additionalProperties).
-func isScalarUnion(s *Schema) bool {
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
-	if len(variants) == 0 {
-		return false
-	}
-	for _, v := range variants {
-		if v.Properties != nil || v.AdditionalProperties != nil ||
-			len(v.AllOf) > 0 || len(v.AnyOf) > 0 || len(v.OneOf) > 0 {
-			return false
-		}
-	}
-	return true
-}
-
-// hasProps returns true if the schema has at least one property.
-func hasProps(s *Schema) bool {
-	return len(s.Properties) > 0
-}
-
 // scalarUnionType builds a Union[...] type string from scalar anyOf/oneOf branches.
-func scalarUnionType(s *Schema) string {
+func scalarUnionType(s *Config) string {
 	variants := s.AnyOf
 	if len(variants) == 0 {
 		variants = s.OneOf
@@ -272,7 +233,7 @@ func scalarUnionType(s *Schema) string {
 	return fmt.Sprintf("Union[%s]", strings.Join(types, ", "))
 }
 
-func scalarPyType(s *Schema) string {
+func scalarPyType(s *Config) string {
 	if len(s.Enum) > 0 {
 		var vals []string
 		for _, e := range s.Enum {
@@ -434,13 +395,4 @@ func toSnake(s string) string {
 
 func sanitizeDocstring(s string) string {
 	return strings.ReplaceAll(s, `"""`, `\"\"\"`)
-}
-
-func newPydanticFormat() *Format {
-	return &Format{
-		Name:        "pydantic",
-		Aliases:     []string{"py"},
-		Description: "Python Pydantic v2 models",
-		Write: WritePydantic,
-	}
 }

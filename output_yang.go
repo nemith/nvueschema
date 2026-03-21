@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 )
 
 // WriteYANG outputs the config schema as a YANG module.
-func WriteYANG(w io.Writer, schema *Schema, info map[string]any) error {
+func WriteYANG(w io.Writer, schema *Config, info map[string]any) error {
 	version := "unknown"
 	if v, ok := info["version"].(string); ok {
 		version = v
@@ -38,7 +38,7 @@ func WriteYANG(w io.Writer, schema *Schema, info map[string]any) error {
 	// Emit typedefs for format-based types.
 	emitYANGTypedefs(w)
 
-	merged := flattenComposite(schema)
+	merged := FlattenComposite(schema)
 	emitYANGContainer(w, "nvue-config", schema, merged, 1)
 
 	fmt.Fprintln(w, "}")
@@ -82,12 +82,12 @@ func emitYANGTypedefs(w io.Writer) {
 	}
 }
 
-func emitYANGContainer(w io.Writer, name string, orig *Schema, flat *Schema, depth int) {
+func emitYANGContainer(w io.Writer, name string, orig *Config, flat *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
 
 	type prop struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []prop
 	if flat.Properties != nil {
@@ -118,18 +118,18 @@ func emitYANGContainer(w io.Writer, name string, orig *Schema, flat *Schema, dep
 	fmt.Fprintf(w, "%s}\n", indent)
 }
 
-func emitYANGNode(w io.Writer, name string, s *Schema, depth int) {
+func emitYANGNode(w io.Writer, name string, s *Config, depth int) {
 	// Scalar union (anyOf/oneOf of primitives) -> YANG union leaf.
 	if isScalarUnion(s) {
 		emitYANGUnionLeaf(w, name, s, depth)
 		return
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	// Dict with complex values -> list.
 	if flat.AdditionalProperties != nil {
-		apFlat := flattenComposite(flat.AdditionalProperties)
+		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			emitYANGList(w, name, flat.AdditionalProperties, apFlat, depth)
 			return
@@ -152,12 +152,12 @@ func emitYANGNode(w io.Writer, name string, s *Schema, depth int) {
 	emitYANGLeaf(w, name, flat, depth)
 }
 
-func emitYANGList(w io.Writer, name string, orig *Schema, flat *Schema, depth int) {
+func emitYANGList(w io.Writer, name string, orig *Config, flat *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
 
 	type prop struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []prop
 	if flat.Properties != nil {
@@ -187,7 +187,7 @@ func emitYANGList(w io.Writer, name string, orig *Schema, flat *Schema, depth in
 	fmt.Fprintf(w, "%s}\n", indent)
 }
 
-func emitYANGLeaf(w io.Writer, name string, s *Schema, depth int) {
+func emitYANGLeaf(w io.Writer, name string, s *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
 	yangType := toYANGType(s)
 
@@ -202,9 +202,9 @@ func emitYANGLeaf(w io.Writer, name string, s *Schema, depth int) {
 	fmt.Fprintf(w, "%s}\n", indent)
 }
 
-func emitYANGLeafList(w io.Writer, name string, s *Schema, depth int) {
+func emitYANGLeafList(w io.Writer, name string, s *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
-	itemFlat := flattenComposite(s.Items)
+	itemFlat := FlattenComposite(s.Items)
 	yangType := toYANGType(itemFlat)
 
 	fmt.Fprintf(w, "%sleaf-list %s {\n", indent, yangSafe(name))
@@ -215,7 +215,7 @@ func emitYANGLeafList(w io.Writer, name string, s *Schema, depth int) {
 	fmt.Fprintf(w, "%s}\n", indent)
 }
 
-func emitYANGUnionLeaf(w io.Writer, name string, s *Schema, depth int) {
+func emitYANGUnionLeaf(w io.Writer, name string, s *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
 	variants := s.AnyOf
 	if len(variants) == 0 {
@@ -259,7 +259,7 @@ func emitYANGUnionLeaf(w io.Writer, name string, s *Schema, depth int) {
 }
 
 // emitYANGTypeBlock writes the type statement, including pattern/range restrictions and enums.
-func emitYANGTypeBlock(w io.Writer, yangType string, s *Schema, indent string) {
+func emitYANGTypeBlock(w io.Writer, yangType string, s *Config, indent string) {
 	hasRestrictions := s.Pattern != "" || s.Minimum != nil || s.Maximum != nil ||
 		s.MinLength != nil || s.MaxLength != nil
 
@@ -309,7 +309,7 @@ func emitYANGTypeBlock(w io.Writer, yangType string, s *Schema, indent string) {
 	fmt.Fprintf(w, "%s  }\n", indent)
 }
 
-func toYANGType(s *Schema) string {
+func toYANGType(s *Config) string {
 	// Check format first.
 	if t := formatToYANGType(s.Format); t != "" {
 		return t
@@ -336,7 +336,7 @@ func toYANGType(s *Schema) string {
 func formatToYANGType(format string) string {
 	switch format {
 	case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
-		return "inet:ipv4-address" // would need inet import; using typedef instead
+		return "inet:ipv4-address"
 	case "ipv6", "ipv6-netmask":
 		return "inet:ipv6-address"
 	case "ipv4-prefix", "ipv4-sub-prefix", "ipv4-multicast-prefix",
@@ -397,12 +397,4 @@ func formatToYANGType(format string) string {
 func yangSafe(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 	return s
-}
-
-func newYANGFormat() *Format {
-	return &Format{
-		Name:        "yang",
-		Description: "YANG module",
-		Write: WriteYANG,
-	}
 }

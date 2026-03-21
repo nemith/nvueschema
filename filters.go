@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import "strings"
 
@@ -10,15 +10,4 @@ func pathMatches(changePath string, filters []string) bool {
 		}
 	}
 	return false
-}
-
-// filterChanges keeps only changes whose paths match any of the given prefixes.
-func filterChanges(changes []Change, filters []string) []Change {
-	var out []Change
-	for _, c := range changes {
-		if pathMatches(c.Path, filters) {
-			out = append(out, c)
-		}
-	}
-	return out
 }

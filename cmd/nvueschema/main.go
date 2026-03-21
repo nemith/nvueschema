@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nemith/nvueschema"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +18,7 @@ type Format struct {
 	Aliases     []string
 	Description string
 	Register    func(cmd *cobra.Command)
-	Write       func(w io.Writer, schema *Schema, info map[string]any) error
+	Write       func(w io.Writer, schema *nvueschema.Config, info map[string]any) error
 }
 
 func lookupFormat(formats []*Format, name string) *Format {
@@ -47,7 +48,7 @@ func formatList(formats []*Format) string {
 
 func main() {
 	root := &cobra.Command{
-		Use:   "cumulus-schema",
+		Use:   "nvueschema",
 		Short: "Extract and generate config schemas from Cumulus Linux NVUE OpenAPI specs",
 	}
 

@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"encoding/json"
@@ -7,56 +7,56 @@ import (
 	"strings"
 )
 
-// RawSpec holds the top-level OpenAPI document with x-defs.
-type RawSpec struct {
+// rawSpec holds the top-level OpenAPI document with x-defs.
+type rawSpec struct {
 	OpenAPI string                    `json:"openapi"`
 	Info    map[string]any            `json:"info"`
 	XDefs   map[string]map[string]any `json:"x-defs"`
 	Paths   map[string]map[string]any `json:"paths"`
 }
 
-// Schema is a resolved JSON-Schema-like node (no $ref remaining).
-type Schema struct {
-	Description           string            `json:"description,omitempty"`
-	Type                  string            `json:"type,omitempty"`
-	Nullable              bool              `json:"nullable,omitempty"`
-	Properties            map[string]*Schema `json:"properties,omitempty"`
-	AdditionalProperties  *Schema           `json:"additionalProperties,omitempty"`
-	Items                 *Schema           `json:"items,omitempty"`
-	AllOf                 []*Schema         `json:"allOf,omitempty"`
-	OneOf                 []*Schema         `json:"oneOf,omitempty"`
-	AnyOf                 []*Schema         `json:"anyOf,omitempty"`
-	Enum                  []any             `json:"enum,omitempty"`
-	Default               any               `json:"default,omitempty"`
-	Minimum               *float64          `json:"minimum,omitempty"`
-	Maximum               *float64          `json:"maximum,omitempty"`
-	MinLength             *int              `json:"minLength,omitempty"`
-	MaxLength             *int              `json:"maxLength,omitempty"`
-	Pattern               string            `json:"pattern,omitempty"`
-	Format                string            `json:"format,omitempty"`
-	Required              []string          `json:"required,omitempty"`
-	XModelName            string            `json:"x-model-name,omitempty"`
-	UnevaluatedProperties *bool             `json:"x-unevaluatedProperties,omitempty"`
-	SourceRef             string            `json:"-"` // x-defs key or API path, not serialized
+// Config is a resolved JSON-Config-like node (no $ref remaining).
+type Config struct {
+	Description           string             `json:"description,omitempty"`
+	Type                  string             `json:"type,omitempty"`
+	Nullable              bool               `json:"nullable,omitempty"`
+	Properties            map[string]*Config `json:"properties,omitempty"`
+	AdditionalProperties  *Config            `json:"additionalProperties,omitempty"`
+	Items                 *Config            `json:"items,omitempty"`
+	AllOf                 []*Config          `json:"allOf,omitempty"`
+	OneOf                 []*Config          `json:"oneOf,omitempty"`
+	AnyOf                 []*Config          `json:"anyOf,omitempty"`
+	Enum                  []any              `json:"enum,omitempty"`
+	Default               any                `json:"default,omitempty"`
+	Minimum               *float64           `json:"minimum,omitempty"`
+	Maximum               *float64           `json:"maximum,omitempty"`
+	MinLength             *int               `json:"minLength,omitempty"`
+	MaxLength             *int               `json:"maxLength,omitempty"`
+	Pattern               string             `json:"pattern,omitempty"`
+	Format                string             `json:"format,omitempty"`
+	Required              []string           `json:"required,omitempty"`
+	XModelName            string             `json:"x-model-name,omitempty"`
+	UnevaluatedProperties *bool              `json:"x-unevaluatedProperties,omitempty"`
+	SourceRef             string             `json:"-"` // x-defs key or API path, not serialized
 }
 
-// Extractor resolves $ref pointers within x-defs and extracts the config tree.
-type Extractor struct {
-	raw        RawSpec
-	resolved   map[string]*Schema // cache of already-resolved x-defs
-	stack      map[string]bool    // cycle detection
-	defToPath  map[string]string  // x-defs key -> API path (from PATCH requestBody)
+// Parser resolves $ref pointers within x-defs and extracts the config tree.
+type Parser struct {
+	raw       rawSpec
+	resolved  map[string]*Config // cache of already-resolved x-defs
+	stack     map[string]bool    // cycle detection
+	defToPath map[string]string  // x-defs key -> API path (from PATCH requestBody)
 }
 
-// NewExtractor parses an OpenAPI JSON spec from an io.Reader.
-func NewExtractor(r io.Reader) (*Extractor, error) {
-	var raw RawSpec
+// NewParser parses an OpenAPI JSON spec from an io.Reader.
+func NewParser(r io.Reader) (*Parser, error) {
+	var raw rawSpec
 	if err := json.NewDecoder(r).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parsing spec: %w", err)
 	}
-	e := &Extractor{
+	e := &Parser{
 		raw:       raw,
-		resolved:  make(map[string]*Schema),
+		resolved:  make(map[string]*Config),
 		stack:     make(map[string]bool),
 		defToPath: make(map[string]string),
 	}
@@ -65,7 +65,7 @@ func NewExtractor(r io.Reader) (*Extractor, error) {
 }
 
 // buildDefToPath maps x-defs keys referenced by PATCH requestBody to their API path.
-func (e *Extractor) buildDefToPath() {
+func (e *Parser) buildDefToPath() {
 	for apiPath, methods := range e.raw.Paths {
 		patch, ok := methods["patch"]
 		if !ok {
@@ -102,19 +102,19 @@ func (e *Extractor) buildDefToPath() {
 	}
 }
 
-// ExtractConfig returns the fully-resolved config schema starting from
+// ConfigSchema returns the fully-resolved config schema starting from
 // the PATCH request body of the root path ("/").
-func (e *Extractor) ExtractConfig() (*Schema, error) {
+func (e *Parser) ConfigSchema() (*Config, error) {
 	return e.resolveRef("cue-patch-schema-root-root")
 }
 
 // Info returns the spec info block.
-func (e *Extractor) Info() map[string]any {
+func (e *Parser) Info() map[string]any {
 	return e.raw.Info
 }
 
 // ConfigPaths returns all paths that have a PATCH operation (i.e., configurable).
-func (e *Extractor) ConfigPaths() []string {
+func (e *Parser) ConfigPaths() []string {
 	var paths []string
 	for p, methods := range e.raw.Paths {
 		if _, ok := methods["patch"]; ok {
@@ -124,12 +124,12 @@ func (e *Extractor) ConfigPaths() []string {
 	return paths
 }
 
-func (e *Extractor) resolveRef(defName string) (*Schema, error) {
+func (e *Parser) resolveRef(defName string) (*Config, error) {
 	if s, ok := e.resolved[defName]; ok {
 		return s, nil
 	}
 	if e.stack[defName] {
-		s := &Schema{Description: fmt.Sprintf("(circular ref: %s)", defName)}
+		s := &Config{Description: fmt.Sprintf("(circular ref: %s)", defName)}
 		return s, nil
 	}
 	e.stack[defName] = true
@@ -154,7 +154,7 @@ func (e *Extractor) resolveRef(defName string) (*Schema, error) {
 	return s, nil
 }
 
-func (e *Extractor) resolveNode(raw map[string]any) (*Schema, error) {
+func (e *Parser) resolveNode(raw map[string]any) (*Config, error) {
 	if ref, ok := raw["$ref"].(string); ok {
 		name := refToDefName(ref)
 		if name == "" {
@@ -163,7 +163,7 @@ func (e *Extractor) resolveNode(raw map[string]any) (*Schema, error) {
 		return e.resolveRef(name)
 	}
 
-	s := &Schema{}
+	s := &Config{}
 
 	if v, ok := raw["description"].(string); ok {
 		s.Description = v
@@ -217,7 +217,7 @@ func (e *Extractor) resolveNode(raw map[string]any) (*Schema, error) {
 	}
 
 	if props, ok := raw["properties"].(map[string]any); ok {
-		s.Properties = make(map[string]*Schema, len(props))
+		s.Properties = make(map[string]*Config, len(props))
 		for k, v := range props {
 			// Skip API action properties — not part of config state.
 			if strings.HasPrefix(k, "@") {
@@ -253,7 +253,7 @@ func (e *Extractor) resolveNode(raw map[string]any) (*Schema, error) {
 
 	for _, key := range []string{"allOf", "oneOf", "anyOf"} {
 		if arr, ok := raw[key].([]any); ok {
-			var list []*Schema
+			var list []*Config
 			for i, v := range arr {
 				node, ok := v.(map[string]any)
 				if !ok {

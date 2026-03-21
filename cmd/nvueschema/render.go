@@ -4,26 +4,26 @@ import (
 	"strings"
 
 	"github.com/jwalton/gchalk"
+	"github.com/nemith/nvueschema"
 )
 
 // renderTypeSegs formats type segments with coloring into a strings.Builder.
-// Wraps in brackets: [type | "literal"]
-func renderTypeSegs(b *strings.Builder, segs []typeSegment) {
+func renderTypeSegs(b *strings.Builder, segs []nvueschema.TypeSegment) {
 	if len(segs) == 0 {
 		return
 	}
 	b.WriteString(" [")
 	for _, seg := range segs {
-		if seg.literal {
-			b.WriteString(gchalk.Magenta(seg.text))
+		if seg.Literal {
+			b.WriteString(gchalk.Magenta(seg.Text))
 		} else {
-			b.WriteString(gchalk.Yellow(seg.text))
+			b.WriteString(gchalk.Yellow(seg.Text))
 		}
 	}
 	b.WriteString("]")
 }
 
-// renderDefault formats a default value with coloring into a strings.Builder.
+// renderDefault formats a default value with coloring.
 func renderDefault(b *strings.Builder, defaultVal string) {
 	if defaultVal == "" {
 		return
@@ -31,7 +31,7 @@ func renderDefault(b *strings.Builder, defaultVal string) {
 	b.WriteString(" " + gchalk.Cyan("(default: "+defaultVal+")"))
 }
 
-// renderDesc formats a description with coloring into a strings.Builder.
+// renderDesc formats a description with coloring.
 func renderDesc(b *strings.Builder, desc string) {
 	if desc == "" {
 		return
@@ -40,7 +40,7 @@ func renderDesc(b *strings.Builder, desc string) {
 }
 
 // renderNodeDetail appends type, default, and description to a line.
-func renderNodeDetail(b *strings.Builder, segs []typeSegment, defaultVal, desc string) {
+func renderNodeDetail(b *strings.Builder, segs []nvueschema.TypeSegment, defaultVal, desc string) {
 	renderTypeSegs(b, segs)
 	renderDefault(b, defaultVal)
 	renderDesc(b, desc)

@@ -1,120 +1,39 @@
-// Package main implements the cumulus-schema CLI tool.
-package main
+// Package nvueschema extracts and generates config schemas from Cumulus Linux NVUE OpenAPI specs.
+package nvueschema
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-
-	"github.com/jwalton/gchalk"
-	"github.com/spf13/cobra"
 )
+
+// Diff holds the result of comparing two schemas.
+type Diff struct {
+	Changes []Change
+}
 
 // Change represents a single schema difference.
 type Change struct {
 	Path       string
 	Kind       string // "added", "removed", "changed"
 	Desc       string
-	TypeSegs   []typeSegment // type info for added/removed leaves
+	TypeSegs   []TypeSegment // type info for added/removed leaves
 	DefaultVal string        // default value for added/removed leaves
 }
 
-func newDiffCmd() *cobra.Command {
-	var (
-		noCache    bool
-		paths      []string
-		outputMode string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "diff <old-spec-or-version> <new-spec-or-version>",
-		Short: "Show config schema differences between two versions",
-		Long: strings.TrimSpace(`
-Compare the config schemas of two Cumulus Linux versions and show
-what was added, removed, or changed.
-
-Arguments can be file paths or version strings (e.g. "5.14").
-Use --path to filter to specific subtrees (repeatable).
-Use --output flat for a greppable output with full paths.
-
-Examples:
-  cumulus-schema diff 5.14 5.16
-  cumulus-schema diff 5.0 5.16 --path interface
-  cumulus-schema diff 5.0 5.16 -O flat | grep bgp
-`),
-		Args: cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			oldExt, err := resolveSpec(args[0], noCache)
-			if err != nil {
-				return fmt.Errorf("loading old spec: %w", err)
-			}
-			oldSchema, err := oldExt.ExtractConfig()
-			if err != nil {
-				return fmt.Errorf("extracting old config: %w", err)
-			}
-
-			newExt, err := resolveSpec(args[1], noCache)
-			if err != nil {
-				return fmt.Errorf("loading new spec: %w", err)
-			}
-			newSchema, err := newExt.ExtractConfig()
-			if err != nil {
-				return fmt.Errorf("extracting new config: %w", err)
-			}
-
-			changes := diffSchemas(oldSchema, newSchema, "")
-
-			// Filter to requested paths.
-			if len(paths) > 0 {
-				changes = filterChanges(changes, paths)
-			}
-
-			if len(changes) == 0 {
-				fmt.Fprintln(os.Stderr, "No differences found.")
-				return nil
-			}
-
-			sort.Slice(changes, func(i, j int) bool {
-				return changes[i].Path < changes[j].Path
-			})
-
-			if outputMode == "flat" {
-				printDiffFlat(changes)
-			} else {
-				tree := buildDiffTree(changes)
-				printDiffTree(tree, "", false, true)
-			}
-
-			var added, removed, changed int
-			for _, c := range changes {
-				switch c.Kind {
-				case "added":
-					added++
-				case "removed":
-					removed++
-				case "changed":
-					changed++
-				}
-			}
-			fmt.Fprintf(os.Stderr, "\nTotal: %s, %s, %s\n",
-				gchalk.Green(fmt.Sprintf("%d added", added)),
-				gchalk.Red(fmt.Sprintf("%d removed", removed)),
-				gchalk.Yellow(fmt.Sprintf("%d changed", changed)))
-			return nil
-		},
-	}
-
-	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
-	cmd.Flags().StringArrayVar(&paths, "path", nil, "Filter to a subtree (repeatable)")
-	cmd.Flags().StringVarP(&outputMode, "output", "O", "tree", "Output mode: tree or flat")
-
-	return cmd
+// DiffSchemas compares two schemas and returns a Diff.
+func DiffSchemas(old, newer *Config, path string) *Diff {
+	return &Diff{Changes: diffSchemas(old, newer, path)}
 }
 
-func diffSchemas(old, newer *Schema, path string) []Change {
-	oldFlat := flattenComposite(old)
-	newFlat := flattenComposite(newer)
+// Filter returns a new Diff containing only changes under the given paths.
+func (d *Diff) Filter(paths []string) *Diff {
+	return &Diff{Changes: filterChanges(d.Changes, paths)}
+}
+
+func diffSchemas(old, newer *Config, path string) []Change {
+	oldFlat := FlattenComposite(old)
+	newFlat := FlattenComposite(newer)
 
 	var changes []Change
 
@@ -157,8 +76,8 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 
 			// If type changed from scalar to object, show new fields as added.
 			// If type changed from object to scalar, show old fields as removed.
-			oldChildFlat := flattenComposite(oldChild)
-			newChildFlat := flattenComposite(newChild)
+			oldChildFlat := FlattenComposite(oldChild)
+			newChildFlat := FlattenComposite(newChild)
 			if !hasProps(oldChildFlat) && hasProps(newChildFlat) {
 				for _, n := range propNames(newChildFlat) {
 					changes = append(changes, Change{
@@ -167,7 +86,7 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 						Desc: propDescription(newChildFlat, n),
 					})
 				}
-				changes = append(changes, diffSchemas(&Schema{}, newChild, childPath)...)
+				changes = append(changes, diffSchemas(&Config{}, newChild, childPath)...)
 			} else if hasProps(oldChildFlat) && !hasProps(newChildFlat) {
 				for _, n := range propNames(oldChildFlat) {
 					changes = append(changes, Change{
@@ -201,10 +120,10 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 		oldAP := oldFlat.AdditionalProperties
 		newAP := newFlat.AdditionalProperties
 		if oldAP == nil {
-			oldAP = &Schema{}
+			oldAP = &Config{}
 		}
 		if newAP == nil {
-			newAP = &Schema{}
+			newAP = &Config{}
 		}
 		changes = append(changes, diffSchemas(oldAP, newAP, joinPath(path, "[*]"))...)
 	}
@@ -214,8 +133,8 @@ func diffSchemas(old, newer *Schema, path string) []Change {
 
 // makeAddRemoveChange creates a Change for an added or removed property.
 // Leaves get inline type info. Objects recurse to show their children.
-func makeAddRemoveChange(s *Schema, path, kind string) []Change {
-	flat := flattenComposite(s)
+func makeAddRemoveChange(s *Config, path, kind string) []Change {
+	flat := FlattenComposite(s)
 
 	c := Change{
 		Path: path,
@@ -225,15 +144,15 @@ func makeAddRemoveChange(s *Schema, path, kind string) []Change {
 
 	// Leaf — attach type info inline.
 	if !hasProps(flat) && flat.AdditionalProperties == nil {
-		c.TypeSegs, c.DefaultVal = leafTypeSegs(s)
+		c.TypeSegs, c.DefaultVal = LeafTypeSegs(s)
 		return []Change{c}
 	}
 
 	// Object/map — add type, emit the node, then recurse into children.
 	if flat.AdditionalProperties != nil {
-		c.TypeSegs = []typeSegment{{text: "map", literal: false}}
+		c.TypeSegs = []TypeSegment{{Text: "map", Literal: false}}
 	} else {
-		c.TypeSegs = []typeSegment{{text: "object", literal: false}}
+		c.TypeSegs = []TypeSegment{{Text: "object", Literal: false}}
 	}
 	var changes []Change
 	changes = append(changes, c)
@@ -245,7 +164,7 @@ func makeAddRemoveChange(s *Schema, path, kind string) []Change {
 
 	// Recurse into additionalProperties (dict values).
 	if flat.AdditionalProperties != nil {
-		apFlat := flattenComposite(flat.AdditionalProperties)
+		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			changes = append(changes, makeAddRemoveChange(flat.AdditionalProperties, joinPath(path, "[*]"), kind)...)
 		}
@@ -254,9 +173,20 @@ func makeAddRemoveChange(s *Schema, path, kind string) []Change {
 	return changes
 }
 
-func diffTypes(old, newer *Schema) string {
-	oldFlat := flattenComposite(old)
-	newFlat := flattenComposite(newer)
+// filterChanges keeps only changes whose paths match any of the given prefixes.
+func filterChanges(changes []Change, filters []string) []Change {
+	var out []Change
+	for _, c := range changes {
+		if pathMatches(c.Path, filters) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func diffTypes(old, newer *Config) string {
+	oldFlat := FlattenComposite(old)
+	newFlat := FlattenComposite(newer)
 
 	oldType := effectiveType(oldFlat)
 	newType := effectiveType(newFlat)
@@ -267,7 +197,8 @@ func diffTypes(old, newer *Schema) string {
 	return ""
 }
 
-func effectiveType(s *Schema) string {
+// effectiveType returns the effective type string for a schema.
+func effectiveType(s *Config) string {
 	if s == nil {
 		return "unknown"
 	}
@@ -305,9 +236,9 @@ func effectiveType(s *Schema) string {
 	return "unknown"
 }
 
-func diffEnums(old, newer *Schema) string {
-	oldFlat := flattenComposite(old)
-	newFlat := flattenComposite(newer)
+func diffEnums(old, newer *Config) string {
+	oldFlat := FlattenComposite(old)
+	newFlat := FlattenComposite(newer)
 
 	if len(oldFlat.Enum) == 0 && len(newFlat.Enum) == 0 {
 		return ""
@@ -350,9 +281,9 @@ func diffEnums(old, newer *Schema) string {
 	return strings.Join(parts, "; ")
 }
 
-func diffConstraints(old, newer *Schema, path string) []Change {
-	oldFlat := flattenComposite(old)
-	newFlat := flattenComposite(newer)
+func diffConstraints(old, newer *Config, path string) []Change {
+	oldFlat := FlattenComposite(old)
+	newFlat := FlattenComposite(newer)
 
 	var changes []Change
 
@@ -402,7 +333,8 @@ func diffConstraints(old, newer *Schema, path string) []Change {
 	return changes
 }
 
-func propNames(s *Schema) []string {
+// propNames returns sorted property names from a schema.
+func propNames(s *Config) []string {
 	if s == nil || s.Properties == nil {
 		return nil
 	}
@@ -414,7 +346,8 @@ func propNames(s *Schema) []string {
 	return names
 }
 
-func hasProperty(s *Schema, name string) bool {
+// hasProperty returns true if the schema has a property with the given name.
+func hasProperty(s *Config, name string) bool {
 	if s == nil || s.Properties == nil {
 		return false
 	}
@@ -422,7 +355,7 @@ func hasProperty(s *Schema, name string) bool {
 	return ok
 }
 
-func propDescription(s *Schema, name string) string {
+func propDescription(s *Config, name string) string {
 	if s == nil || s.Properties == nil {
 		return ""
 	}
@@ -430,7 +363,7 @@ func propDescription(s *Schema, name string) string {
 	if p == nil {
 		return ""
 	}
-	flat := flattenComposite(p)
+	flat := FlattenComposite(p)
 	desc := flat.Description
 	if desc == "" {
 		return ""
@@ -442,21 +375,12 @@ func propDescription(s *Schema, name string) string {
 	return first
 }
 
+// joinPath joins two dotted path segments.
 func joinPath(base, name string) string {
 	if base == "" {
 		return name
 	}
 	return base + "." + name
-}
-
-func enumString(vals []any) string {
-	var parts []string
-	for _, v := range vals {
-		if v != nil {
-			parts = append(parts, fmt.Sprint(v))
-		}
-	}
-	return strings.Join(parts, ",")
 }
 
 func floatPtrEqual(a, b *float64) bool {
@@ -484,181 +408,4 @@ func fmtIntPtr(p *int) string {
 		return "(none)"
 	}
 	return fmt.Sprintf("%d", *p)
-}
-
-// diffNode is a tree node for rendering the diff hierarchically.
-type diffNode struct {
-	name     string
-	changes  []Change // leaf changes at this node
-	children []*diffNode
-}
-
-// buildDiffTree takes a sorted flat list of changes and builds a tree.
-func buildDiffTree(changes []Change) *diffNode {
-	root := &diffNode{name: "(root)"}
-	for _, c := range changes {
-		parts := strings.Split(c.Path, ".")
-		node := root
-		for _, part := range parts {
-			node = node.getOrCreate(part)
-		}
-		node.changes = append(node.changes, c)
-	}
-	return root
-}
-
-func (n *diffNode) getOrCreate(name string) *diffNode {
-	for _, child := range n.children {
-		if child.name == name {
-			return child
-		}
-	}
-	child := &diffNode{name: name}
-	n.children = append(n.children, child)
-	return child
-}
-
-// collapseName walks single-child chains and returns the collapsed
-// name (e.g. "system.aaa.radius") and the node where branching begins.
-func collapseName(n *diffNode) (string, *diffNode) {
-	var name strings.Builder
-	name.WriteString(n.name)
-	cur := n
-	for len(cur.changes) == 0 && len(cur.children) == 1 {
-		cur = cur.children[0]
-		name.WriteString("." + cur.name)
-	}
-	return name.String(), cur
-}
-
-// printDiffTree renders the tree with box-drawing lines.
-// prefix is the inherited prefix for lines below (e.g. "│   │   ").
-func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
-	red := gchalk.Red
-	green := gchalk.Green
-	yellow := gchalk.Yellow
-	bold := gchalk.Bold
-
-	// The effective node after collapsing single-child chains.
-	displayName := n.name
-	effective := n
-	if !isRoot {
-		displayName, effective = collapseName(n)
-	}
-
-	// For add/remove nodes with a single change, render inline (like show).
-	// This covers both leaves (with type info) and branches (with just desc).
-	var inlineChange *Change
-	if !isRoot && len(effective.changes) == 1 {
-		c := &effective.changes[0]
-		if c.Kind == "added" || c.Kind == "removed" {
-			inlineChange = c
-		}
-	}
-
-	if !isRoot {
-		connector := "├── "
-		if isLast {
-			connector = "└── "
-		}
-
-		kind := uniformKind(effective)
-
-		var line strings.Builder
-		switch kind {
-		case "added":
-			line.WriteString(green("+") + " " + bold(displayName))
-		case "removed":
-			line.WriteString(red("-") + " " + bold(displayName))
-		case "changed":
-			line.WriteString(yellow("~") + " " + bold(displayName))
-		default:
-			// Mixed changes — show as changed.
-			line.WriteString(yellow("~") + " " + bold(displayName))
-		}
-
-		if inlineChange != nil {
-			renderNodeDetail(&line, inlineChange.TypeSegs, inlineChange.DefaultVal, inlineChange.Desc)
-		}
-
-		fmt.Printf("%s%s%s\n", prefix, connector, line.String())
-	}
-
-	// If we rendered everything inline and there are no children, we're done.
-	if inlineChange != nil && len(effective.children) == 0 {
-		return
-	}
-
-	// Build the prefix for children.
-	childPrefix := prefix
-	if !isRoot {
-		if isLast {
-			childPrefix += "    "
-		} else {
-			childPrefix += "│   "
-		}
-	}
-
-	// Print change detail lines (plain indented, not part of the tree).
-	for i, c := range effective.changes {
-		if inlineChange != nil && i == 0 {
-			continue // already rendered inline
-		}
-		if c.Desc == "" && len(c.TypeSegs) == 0 {
-			continue
-		}
-
-		fmt.Printf("%s    %s\n", childPrefix, gchalk.Dim(c.Desc))
-	}
-
-	// Recurse into children.
-	for i, child := range effective.children {
-		last := i == len(effective.children)-1
-		printDiffTree(child, childPrefix, last, false)
-	}
-}
-
-// uniformKind returns the change kind if all changes in this subtree
-// are the same kind, or "" if mixed.
-func uniformKind(n *diffNode) string {
-	kind := ""
-	var walk func(node *diffNode) bool
-	walk = func(node *diffNode) bool {
-		for _, c := range node.changes {
-			if kind == "" {
-				kind = c.Kind
-			} else if kind != c.Kind {
-				return false
-			}
-		}
-		for _, child := range node.children {
-			if !walk(child) {
-				return false
-			}
-		}
-		return true
-	}
-	if walk(n) {
-		return kind
-	}
-	return ""
-}
-
-func printDiffFlat(changes []Change) {
-	for _, c := range changes {
-		var line strings.Builder
-
-		switch c.Kind {
-		case "added":
-			line.WriteString(gchalk.Green("+") + " " + c.Path)
-		case "removed":
-			line.WriteString(gchalk.Red("-") + " " + c.Path)
-		case "changed":
-			line.WriteString(gchalk.Yellow("~") + " " + c.Path)
-		}
-
-		renderNodeDetail(&line, c.TypeSegs, c.DefaultVal, c.Desc)
-
-		fmt.Println(line.String())
-	}
 }

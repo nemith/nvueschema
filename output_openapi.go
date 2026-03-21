@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 )
 
 // WriteOpenAPI outputs a minimal OpenAPI 3.0 spec containing only the config schema.
-func WriteOpenAPI(w io.Writer, schema *Schema, info map[string]any) error {
+func WriteOpenAPI(w io.Writer, schema *Config, info map[string]any) error {
 	version := "1.0.0"
 	if v, ok := info["version"].(string); ok {
 		version = v
@@ -19,7 +19,7 @@ func WriteOpenAPI(w io.Writer, schema *Schema, info map[string]any) error {
 	}
 
 	// Reuse the same cleaned-up schema tree as JSON Schema output.
-	schemaMap := schemaToJSONSchema(schema)
+	schemaMap := schema.ToJSONSchema()
 
 	doc := map[string]any{
 		"openapi": "3.1.0",
@@ -64,14 +64,5 @@ func rewriteRefs(obj any) {
 		for _, val := range v {
 			rewriteRefs(val)
 		}
-	}
-}
-
-func newOpenAPIFormat() *Format {
-	return &Format{
-		Name:        "openapi",
-		Aliases:     []string{"oas"},
-		Description: "Minimal OpenAPI 3.1 spec with config schema only",
-		Write:       WriteOpenAPI,
 	}
 }

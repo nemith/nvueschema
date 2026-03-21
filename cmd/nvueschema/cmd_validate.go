@@ -14,8 +14,8 @@ import (
 
 func newValidateCmd() *cobra.Command {
 	var (
-		noCache    bool
-		configFmt  string
+		noCache   bool
+		configFmt string
 	)
 
 	cmd := &cobra.Command{
@@ -31,29 +31,24 @@ The config file can be YAML or JSON (detected by extension, or
 use --config-format to override).
 
 Examples:
-  cumulus-schema validate 5.16 config.yaml
-  cumulus-schema validate 5.14 startup.json
-  cumulus-schema validate 5.14 config.txt --config-format yaml
+  nvueschema validate 5.16 config.yaml
+  nvueschema validate 5.14 startup.json
+  nvueschema validate 5.14 config.txt --config-format yaml
 `),
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			// Load and extract schema.
 			ext, err := resolveSpec(args[0], noCache)
 			if err != nil {
 				return fmt.Errorf("loading spec: %w", err)
 			}
 
-			schema, err := ext.ExtractConfig()
+			schema, err := ext.ConfigSchema()
 			if err != nil {
 				return fmt.Errorf("extracting config schema: %w", err)
 			}
 
-			// Convert our schema to a JSON Schema document.
-			jsDoc := schemaToJSONSchema(schema)
-			jsDoc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-			jsDoc["$defs"] = formatDefs()
+			jsDoc := schema.JSONSchemaDoc()
 
-			// Parse it into the jsonschema library's Schema type.
 			jsBytes, err := json.Marshal(jsDoc)
 			if err != nil {
 				return fmt.Errorf("marshaling schema: %w", err)
@@ -69,13 +64,11 @@ Examples:
 				return fmt.Errorf("resolving schema: %w", err)
 			}
 
-			// Load the config file.
 			instance, err := loadConfig(args[1], configFmt)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
 
-			// Validate.
 			if err := resolved.Validate(instance); err != nil {
 				fmt.Fprintf(os.Stderr, "Validation failed:\n%v\n", err)
 				os.Exit(1)
@@ -92,9 +85,6 @@ Examples:
 	return cmd
 }
 
-// loadConfig reads a YAML or JSON config file and returns it as a
-// map[string]any suitable for JSON Schema validation.
-// If format is non-empty it overrides extension-based detection.
 func loadConfig(path, format string) (any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -106,16 +96,14 @@ func loadConfig(path, format string) (any, error) {
 		ext = strings.ToLower(filepath.Ext(path))
 	}
 	switch ext {
-	case ".yaml", ".yml":
+	case ".yaml", ".yml", "yaml", "yml":
 		var v any
 		if err := yaml.Unmarshal(data, &v); err != nil {
 			return nil, fmt.Errorf("parsing YAML: %w", err)
 		}
-		// yaml.v3 produces map[string]any for objects, which is what
-		// the jsonschema library expects.
 		return v, nil
 
-	case ".json":
+	case ".json", "json":
 		var v any
 		if err := json.Unmarshal(data, &v); err != nil {
 			return nil, fmt.Errorf("parsing JSON: %w", err)
@@ -123,7 +111,6 @@ func loadConfig(path, format string) (any, error) {
 		return v, nil
 
 	default:
-		// Try YAML first (superset of JSON).
 		var v any
 		if err := yaml.Unmarshal(data, &v); err != nil {
 			return nil, fmt.Errorf("could not parse %s as YAML or JSON: %w", path, err)

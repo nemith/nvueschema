@@ -1,140 +1,30 @@
-package main
+package nvueschema
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-
-	"github.com/jwalton/gchalk"
-	"github.com/spf13/cobra"
 )
 
-func newShowCmd() *cobra.Command {
-	var (
-		noCache    bool
-		paths      []string
-		outputMode string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "show <spec-or-version>",
-		Short: "Show the config schema tree for a version",
-		Long: strings.TrimSpace(`
-Display the full NVUE configuration schema as a tree with types
-and constraints.
-
-Use --path to show only specific subtrees (repeatable).
-Use --output flat for a greppable output with full paths.
-
-Examples:
-  cumulus-schema show 5.16
-  cumulus-schema show 5.14 --path bridge
-  cumulus-schema show 5.16 -O flat | grep bgp
-`),
-		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			ext, err := resolveSpec(args[0], noCache)
-			if err != nil {
-				return err
-			}
-
-			schema, err := ext.ExtractConfig()
-			if err != nil {
-				return fmt.Errorf("extracting config: %w", err)
-			}
-
-			printer := printShowTree
-			if outputMode == "flat" {
-				printer = printShowFlat
-			}
-
-			if len(paths) == 0 {
-				tree := buildShowTree("(root)", flattenComposite(schema))
-				printer(tree, "")
-				return nil
-			}
-
-			for _, p := range paths {
-				root, err := navigateTo(flattenComposite(schema), p)
-				if err != nil {
-					return err
-				}
-				if outputMode != "flat" {
-					fmt.Fprintf(os.Stderr, "%s:\n", p)
-				}
-				tree := buildShowTree("(root)", root)
-				printer(tree, "")
-				if outputMode != "flat" {
-					fmt.Println()
-				}
-			}
-			return nil
-		},
-	}
-
-	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
-	cmd.Flags().StringArrayVar(&paths, "path", nil, "Show only a subtree (repeatable)")
-	cmd.Flags().StringVarP(&outputMode, "output", "O", "tree", "Output mode: tree or flat")
-
-	return cmd
+// Node represents a node in the show tree.
+type Node struct {
+	Name       string
+	TypeSegs   []TypeSegment // type annotation segments
+	DefaultVal string        // default value, rendered separately
+	Desc       string
+	Children   []*Node
 }
 
-// navigateTo walks the schema tree to the given dotted path.
-func navigateTo(s *Schema, path string) (*Schema, error) {
-	parts := strings.Split(path, ".")
-	cur := s
-	for _, part := range parts {
-		flat := flattenComposite(cur)
-		if part == "[*]" {
-			if flat.AdditionalProperties != nil {
-				cur = flat.AdditionalProperties
-				continue
-			}
-			return nil, fmt.Errorf("path %q: [*] but no additionalProperties", path)
-		}
-		if flat.Properties == nil {
-			return nil, fmt.Errorf("path %q: %q not found (no properties)", path, part)
-		}
-		child, ok := flat.Properties[part]
-		if !ok {
-			// Suggest similar names.
-			var avail []string
-			for k := range flat.Properties {
-				avail = append(avail, k)
-			}
-			sort.Strings(avail)
-			return nil, fmt.Errorf("path %q: %q not found (available: %s)",
-				path, part, strings.Join(avail, ", "))
-		}
-		cur = child
-	}
-	return cur, nil
-}
-
-// typeSegment is a piece of a type annotation, either a type name or a literal value.
-type typeSegment struct {
-	text    string
-	literal bool // true for enum/literal values, false for type names
-}
-
-type showNode struct {
-	name       string
-	typeSegs   []typeSegment // type annotation segments
-	defaultVal string        // default value, rendered separately
-	desc       string
-	children   []*showNode
-}
-
-func buildShowTree(name string, s *Schema) *showNode {
-	flat := flattenComposite(s)
-	node := &showNode{
-		name: name,
+// BuildShowTree creates a Node tree from a schema.
+func BuildShowTree(name string, s *Config) *Node {
+	flat := FlattenComposite(s)
+	node := &Node{
+		Name: name,
 	}
 
 	type prop struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []prop
 
@@ -146,53 +36,54 @@ func buildShowTree(name string, s *Schema) *showNode {
 	}
 
 	for _, p := range props {
-		childFlat := flattenComposite(p.schema)
+		childFlat := FlattenComposite(p.schema)
 
 		// Dict with complex values — add [*] intermediate.
 		if childFlat.AdditionalProperties != nil {
-			apFlat := flattenComposite(childFlat.AdditionalProperties)
+			apFlat := FlattenComposite(childFlat.AdditionalProperties)
 			if hasProps(apFlat) {
-				dictNode := &showNode{
-					name:     p.name,
-					typeSegs: []typeSegment{{text: "map", literal: false}},
-					desc:     shortDesc(childFlat.Description),
+				dictNode := &Node{
+					Name:     p.name,
+					TypeSegs: []TypeSegment{{Text: "map", Literal: false}},
+					Desc:     shortDesc(childFlat.Description),
 				}
-				starNode := buildShowTree("[*]", childFlat.AdditionalProperties)
-				dictNode.children = append(dictNode.children, starNode)
-				node.children = append(node.children, dictNode)
+				starNode := BuildShowTree("[*]", childFlat.AdditionalProperties)
+				dictNode.Children = append(dictNode.Children, starNode)
+				node.Children = append(node.Children, dictNode)
 				continue
 			}
 		}
 
 		// Nested object.
 		if hasProps(childFlat) {
-			child := buildShowTree(p.name, p.schema)
-			child.typeSegs = []typeSegment{{text: "object", literal: false}}
-			child.desc = shortDesc(childFlat.Description)
-			node.children = append(node.children, child)
+			child := BuildShowTree(p.name, p.schema)
+			child.TypeSegs = []TypeSegment{{Text: "object", Literal: false}}
+			child.Desc = shortDesc(childFlat.Description)
+			node.Children = append(node.Children, child)
 			continue
 		}
 
 		// Leaf.
-		segs, dv := leafTypeSegs(p.schema)
-		leaf := &showNode{
-			name:       p.name,
-			typeSegs:   segs,
-			defaultVal: dv,
-			desc:       shortDesc(childFlat.Description),
+		segs, dv := LeafTypeSegs(p.schema)
+		leaf := &Node{
+			Name:       p.name,
+			TypeSegs:   segs,
+			DefaultVal: dv,
+			Desc:       shortDesc(childFlat.Description),
 		}
-		node.children = append(node.children, leaf)
+		node.Children = append(node.Children, leaf)
 	}
 
 	return node
 }
 
-func leafTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
+// LeafTypeSegs returns the type segments and default value for a leaf schema.
+func LeafTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
 	if isScalarUnion(s) {
-		return scalarUnionTypeSegs(s)
+		return ScalarUnionTypeSegs(s)
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	if len(flat.Enum) > 0 {
 		var vals []string
@@ -201,7 +92,7 @@ func leafTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
 				vals = append(vals, quoteLiteral(fmt.Sprint(e)))
 			}
 		}
-		segs = append(segs, typeSegment{strings.Join(vals, " | "), true})
+		segs = append(segs, TypeSegment{strings.Join(vals, " | "), true})
 		if flat.Default != nil {
 			return segs, fmtDefault(flat.Default)
 		}
@@ -242,21 +133,22 @@ func leafTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
 		t = t + "(" + strings.Join(constraints, " ") + ")"
 	}
 
-	segs = append(segs, typeSegment{t, false})
+	segs = append(segs, TypeSegment{t, false})
 	if flat.Default != nil {
 		return segs, fmtDefault(flat.Default)
 	}
 	return segs, ""
 }
 
-func scalarUnionTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
+// ScalarUnionTypeSegs returns type segments for a scalar union schema.
+func ScalarUnionTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
 	variants := s.AnyOf
 	if len(variants) == 0 {
 		variants = s.OneOf
 	}
 	for i, v := range variants {
 		if i > 0 {
-			segs = append(segs, typeSegment{" | ", false})
+			segs = append(segs, TypeSegment{" | ", false})
 		}
 		if len(v.Enum) > 0 {
 			var vals []string
@@ -265,9 +157,9 @@ func scalarUnionTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
 					vals = append(vals, quoteLiteral(fmt.Sprint(e)))
 				}
 			}
-			segs = append(segs, typeSegment{strings.Join(vals, ", "), true})
+			segs = append(segs, TypeSegment{strings.Join(vals, ", "), true})
 		} else {
-			segs = append(segs, typeSegment{v.Type, false})
+			segs = append(segs, TypeSegment{v.Type, false})
 		}
 	}
 	if s.Default != nil {
@@ -276,71 +168,46 @@ func scalarUnionTypeSegs(s *Schema) (segs []typeSegment, defaultVal string) {
 	return segs, ""
 }
 
-func shortDesc(s string) string {
-	if s == "" {
-		return ""
+// SubSchema walks the schema tree to the given dotted path.
+func SubSchema(s *Config, path string) (*Config, error) {
+	parts := strings.Split(path, ".")
+	cur := s
+	for _, part := range parts {
+		flat := FlattenComposite(cur)
+		if part == "[*]" {
+			if flat.AdditionalProperties != nil {
+				cur = flat.AdditionalProperties
+				continue
+			}
+			return nil, fmt.Errorf("path %q: [*] but no additionalProperties", path)
+		}
+		if flat.Properties == nil {
+			return nil, fmt.Errorf("path %q: %q not found (no properties)", path, part)
+		}
+		child, ok := flat.Properties[part]
+		if !ok {
+			// Suggest similar names.
+			var avail []string
+			for k := range flat.Properties {
+				avail = append(avail, k)
+			}
+			sort.Strings(avail)
+			return nil, fmt.Errorf("path %q: %q not found (available: %s)",
+				path, part, strings.Join(avail, ", "))
+		}
+		cur = child
 	}
-	first, _, _ := strings.Cut(strings.TrimRight(s, "\n"), "\n")
-	if len(first) > 60 {
-		first = first[:57] + "..."
-	}
-	return first
+	return cur, nil
 }
 
-// collapseShowName collapses single-child chains.
-func collapseShowName(n *showNode) (string, *showNode) {
+// CollapseNode collapses single-child chains.
+func CollapseNode(n *Node) (string, *Node) {
 	var name strings.Builder
-	name.WriteString(n.name)
+	name.WriteString(n.Name)
 	cur := n
-	for len(cur.typeSegs) == 0 && cur.desc == "" && len(cur.children) == 1 {
-		cur = cur.children[0]
-		name.WriteString("." + cur.name)
+	for len(cur.TypeSegs) == 0 && cur.Desc == "" && len(cur.Children) == 1 {
+		cur = cur.Children[0]
+		name.WriteString("." + cur.Name)
 	}
 	return name.String(), cur
-}
-
-func printShowTree(n *showNode, prefix string) {
-	for i, child := range n.children {
-		displayName, effective := collapseShowName(child)
-
-		last := i == len(n.children)-1
-		connector := "├── "
-		if last {
-			connector = "└── "
-		}
-
-		var line strings.Builder
-		line.WriteString(gchalk.Bold(displayName))
-		renderNodeDetail(&line, effective.typeSegs, effective.defaultVal, effective.desc)
-
-		fmt.Fprintf(os.Stdout, "%s%s%s\n", prefix, connector, line.String())
-
-		childPrefix := prefix
-		if last {
-			childPrefix += "    "
-		} else {
-			childPrefix += "│   "
-		}
-		printShowTree(effective, childPrefix)
-	}
-}
-
-// printShowFlat renders the tree as flat lines with full dotted paths.
-func printShowFlat(n *showNode, pathPrefix string) {
-	for _, child := range n.children {
-		displayName, effective := collapseShowName(child)
-
-		fullPath := displayName
-		if pathPrefix != "" {
-			fullPath = pathPrefix + "." + displayName
-		}
-
-		var line strings.Builder
-		line.WriteString(fullPath)
-		renderNodeDetail(&line, effective.typeSegs, effective.defaultVal, effective.desc)
-
-		fmt.Println(line.String())
-
-		printShowFlat(effective, fullPath)
-	}
 }

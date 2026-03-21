@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"fmt"
@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/nemith/dothome"
-	"github.com/spf13/cobra"
 )
 
 // userAgent must be set on all requests to api-prod.nvidia.com.
@@ -22,50 +21,43 @@ const userAgent = "cumulus-schema/1.0"
 
 var versionPattern = regexp.MustCompile(`^5\.(\d+)(?:\.(\d+))?$`)
 
-type versionInfo struct {
-	major int
-	minor int
-	slug  string
+// VersionInfo holds parsed version information.
+type VersionInfo struct {
+	Major int
+	Minor int
+	Slug  string
 }
 
-func parseVersion(version string) (versionInfo, error) {
+// ParseVersion parses a Cumulus Linux version string (e.g. "5.14").
+func ParseVersion(version string) (VersionInfo, error) {
 	m := versionPattern.FindStringSubmatch(version)
 	if m == nil {
-		return versionInfo{}, fmt.Errorf("invalid version %q (expected 5.x or 5.x.y)", version)
+		return VersionInfo{}, fmt.Errorf("invalid version %q (expected 5.x or 5.x.y)", version)
 	}
 	minor, _ := strconv.Atoi(m[1])
-	return versionInfo{
-		major: 5,
-		minor: minor,
-		slug:  "5" + m[1],
+	return VersionInfo{
+		Major: 5,
+		Minor: minor,
+		Slug:  "5" + m[1],
 	}, nil
 }
 
-// specURL returns the download URL for a given version.
+// SpecURL returns the download URL for a given version.
 // Versions 5.0-5.8 use the old docs.nvidia.com path.
 // Versions 5.9+ use the new api-prod.nvidia.com endpoint.
-func specURL(v versionInfo) string {
-	if v.minor >= 9 {
-		filename := fmt.Sprintf("openapi %d.%d.0.json", v.major, v.minor)
+func SpecURL(v VersionInfo) string {
+	if v.Minor >= 9 {
+		filename := fmt.Sprintf("openapi %d.%d.0.json", v.Major, v.Minor)
 		return "https://api-prod.nvidia.com/openapi-browser/" + url.PathEscape(filename)
 	}
 	return "https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-" +
-		url.PathEscape(v.slug) + "/api/openapi.json"
+		url.PathEscape(v.Slug) + "/api/openapi.json"
 }
 
-func cachePaths(slug string) (jsonPath, tsPath string, err error) {
-	layout, err := dothome.CLIAppLayout(dothome.AppConfig{Name: "cumulus-schema"})
-	if err != nil {
-		return "", "", fmt.Errorf("resolving cache dir: %w", err)
-	}
-	base := filepath.Join(layout.CacheDir, "openapi-"+slug)
-	return base + ".json", base + ".lastmod", nil
-}
-
-// fetchSpec downloads a spec for the given parsed version, using the cache.
+// FetchSpec downloads a spec for the given parsed version, using the cache.
 // Set noCache to skip the cache entirely.
-func fetchSpec(v versionInfo, noCache bool) ([]byte, error) {
-	url := specURL(v)
+func FetchSpec(v VersionInfo, noCache bool) ([]byte, error) {
+	url := SpecURL(v)
 
 	if noCache {
 		body, _, _, err := httpFetch(url, "")
@@ -75,7 +67,7 @@ func fetchSpec(v versionInfo, noCache bool) ([]byte, error) {
 		return body, nil
 	}
 
-	jsonPath, tsPath, err := cachePaths(v.slug)
+	jsonPath, tsPath, err := cachePaths(v.Slug)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +105,15 @@ func fetchSpec(v versionInfo, noCache bool) ([]byte, error) {
 
 	writeCache(jsonPath, tsPath, body, lastMod)
 	return body, nil
+}
+
+func cachePaths(slug string) (jsonPath, tsPath string, err error) {
+	layout, err := dothome.CLIAppLayout(dothome.AppConfig{Name: "cumulus-schema"})
+	if err != nil {
+		return "", "", fmt.Errorf("resolving cache dir: %w", err)
+	}
+	base := filepath.Join(layout.CacheDir, "openapi-"+slug)
+	return base + ".json", base + ".lastmod", nil
 }
 
 // httpFetch does a GET with our custom User-Agent. If ifModSince is
@@ -172,63 +173,4 @@ func writeCache(jsonPath, tsPath string, body []byte, lastMod string) {
 			fmt.Fprintf(os.Stderr, "Warning: could not write timestamp: %v\n", err)
 		}
 	}
-}
-
-func newFetchCmd() *cobra.Command {
-	var (
-		outputFile string
-		noCache    bool
-	)
-
-	cmd := &cobra.Command{
-		Use:   "fetch <version>",
-		Short: "Download an NVUE OpenAPI spec from NVIDIA",
-		Long: strings.TrimSpace(`
-Download the NVUE OpenAPI spec for a given Cumulus Linux version.
-
-Specs are cached locally and validated with If-Modified-Since.
-Use --no-cache to skip the cache entirely.
-
-Examples:
-  cumulus-schema fetch 5.16
-  cumulus-schema fetch 5.14 -o cumulus-514.json
-  cumulus-schema fetch 5.5 --no-cache
-`),
-		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			v, err := parseVersion(args[0])
-			if err != nil {
-				return err
-			}
-
-			data, err := fetchSpec(v, noCache)
-			if err != nil {
-				return err
-			}
-
-			var w io.Writer = os.Stdout
-			if outputFile != "" && outputFile != "-" {
-				file, err := os.Create(outputFile)
-				if err != nil {
-					return err
-				}
-				defer file.Close()
-				w = file
-			}
-
-			n, err := w.Write(data)
-			if err != nil {
-				return err
-			}
-			if outputFile != "" && outputFile != "-" {
-				fmt.Fprintf(os.Stderr, "Wrote %s (%d bytes)\n", outputFile, n)
-			}
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file (default: stdout)")
-	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely (don't read or write)")
-
-	return cmd
 }

@@ -1,4 +1,4 @@
-package main
+package nvueschema
 
 import (
 	"encoding/json"
@@ -8,28 +8,34 @@ import (
 )
 
 // WriteJSONSchema outputs the config schema as a standalone JSON Schema draft-07 document.
-func WriteJSONSchema(w io.Writer, schema *Schema, info map[string]any) error {
+func WriteJSONSchema(w io.Writer, schema *Config, info map[string]any) error {
 	title := "Cumulus Linux NVUE Configuration"
 	if v, ok := info["title"].(string); ok {
 		title = v
 	}
 
-	doc := schemaToJSONSchema(schema)
-	doc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+	doc := schema.JSONSchemaDoc()
 	doc["title"] = title
 	if v, ok := info["version"].(string); ok {
 		doc["$comment"] = fmt.Sprintf("Generated from NVUE OpenAPI spec version %s", v)
 	}
-
-	// Add shared format definitions at the top level.
-	doc["$defs"] = formatDefs()
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(doc)
 }
 
-func schemaToJSONSchema(s *Schema) map[string]any {
+// JSONSchemaDoc builds a complete JSON Schema 2020-12 document,
+// including $schema and $defs for format types.
+func (s *Config) JSONSchemaDoc() map[string]any {
+	doc := s.ToJSONSchema()
+	doc["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+	doc["$defs"] = formatDefs()
+	return doc
+}
+
+// ToJSONSchema converts a Schema to a JSON Schema map.
+func (s *Config) ToJSONSchema() map[string]any {
 	if s == nil {
 		return map[string]any{}
 	}
@@ -39,7 +45,7 @@ func schemaToJSONSchema(s *Schema) map[string]any {
 		return scalarUnionToJSONSchema(s)
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 	out := map[string]any{}
 
 	// Source path as comment.
@@ -125,7 +131,7 @@ func schemaToJSONSchema(s *Schema) map[string]any {
 	if hasProps(flat) {
 		props := map[string]any{}
 		for k, v := range flat.Properties {
-			props[k] = schemaToJSONSchema(v)
+			props[k] = v.ToJSONSchema()
 		}
 		out["properties"] = props
 		out["additionalProperties"] = false
@@ -133,18 +139,18 @@ func schemaToJSONSchema(s *Schema) map[string]any {
 
 	// additionalProperties (dict-like)
 	if flat.AdditionalProperties != nil && !hasProps(flat) {
-		out["additionalProperties"] = schemaToJSONSchema(flat.AdditionalProperties)
+		out["additionalProperties"] = flat.AdditionalProperties.ToJSONSchema()
 	}
 
 	// Items (array)
 	if flat.Items != nil {
-		out["items"] = schemaToJSONSchema(flat.Items)
+		out["items"] = flat.Items.ToJSONSchema()
 	}
 
 	return out
 }
 
-func scalarUnionToJSONSchema(s *Schema) map[string]any {
+func scalarUnionToJSONSchema(s *Config) map[string]any {
 	variants := s.AnyOf
 	if len(variants) == 0 {
 		variants = s.OneOf
@@ -349,13 +355,4 @@ func formatDefs() map[string]any {
 		},
 	}
 	return defs
-}
-
-func newJSONSchemaFormat() *Format {
-	return &Format{
-		Name:        "jsonschema",
-		Aliases:     []string{"js"},
-		Description: "JSON Schema 2020-12",
-		Write:       WriteJSONSchema,
-	}
 }

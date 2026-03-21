@@ -6,19 +6,18 @@ import (
 	"io"
 	"os"
 
+	"github.com/nemith/nvueschema"
 	"github.com/spf13/cobra"
 )
 
-// resolveSpec takes a CLI arg that's either a file path or a version string
-// (e.g. "5.14") and returns the parsed extractor. Uses cache for versions.
-func resolveSpec(arg string, noCache bool) (*Extractor, error) {
-	v, err := parseVersion(arg)
+func resolveSpec(arg string, noCache bool) (*nvueschema.Parser, error) {
+	v, err := nvueschema.ParseVersion(arg)
 	if err == nil {
-		data, err := fetchSpec(v, noCache)
+		data, err := nvueschema.FetchSpec(v, noCache)
 		if err != nil {
 			return nil, err
 		}
-		return NewExtractor(bytes.NewReader(data))
+		return nvueschema.NewParser(bytes.NewReader(data))
 	}
 
 	f, err := os.Open(arg)
@@ -26,16 +25,16 @@ func resolveSpec(arg string, noCache bool) (*Extractor, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return NewExtractor(f)
+	return nvueschema.NewParser(f)
 }
 
 func newGenerateCmd() *cobra.Command {
 	formats := []*Format{
-		newJSONSchemaFormat(),
-		newPydanticFormat(),
-		newYANGFormat(),
-		newOpenAPIFormat(),
-		newGoFormat(),
+		{Name: "jsonschema", Aliases: []string{"js"}, Description: "JSON Schema 2020-12", Write: nvueschema.WriteJSONSchema},
+		{Name: "pydantic", Aliases: []string{"py"}, Description: "Python Pydantic v2 models", Write: nvueschema.WritePydantic},
+		{Name: "yang", Description: "YANG module", Write: nvueschema.WriteYANG},
+		{Name: "openapi", Aliases: []string{"oas"}, Description: "Minimal OpenAPI 3.1 spec with config schema only", Write: nvueschema.WriteOpenAPI},
+		{Name: "go", Aliases: []string{"golang"}, Description: "Go structs with json/yaml tags", Write: nvueschema.WriteGoStructs},
 		newProtobufFormat(),
 	}
 
@@ -67,7 +66,7 @@ Available formats: %s`, formatList(formats)),
 				return err
 			}
 
-			schema, err := ext.ExtractConfig()
+			schema, err := ext.ConfigSchema()
 			if err != nil {
 				return fmt.Errorf("extracting config: %w", err)
 			}
@@ -97,4 +96,19 @@ Available formats: %s`, formatList(formats)),
 	}
 
 	return cmd
+}
+
+func newProtobufFormat() *Format {
+	var validate bool
+	return &Format{
+		Name:        "protobuf",
+		Aliases:     []string{"proto"},
+		Description: "Proto3 messages",
+		Register: func(cmd *cobra.Command) {
+			cmd.Flags().BoolVar(&validate, "validate", false, "Include buf protovalidate constraints")
+		},
+		Write: func(w io.Writer, schema *nvueschema.Config, info map[string]any) error {
+			return nvueschema.WriteProtobuf(w, schema, info, validate)
+		},
+	}
 }

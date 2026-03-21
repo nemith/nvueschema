@@ -1,17 +1,15 @@
-package main
+package nvueschema
 
 import (
 	"fmt"
 	"io"
 	"sort"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
 
 // WriteProtobuf outputs the config schema as a .proto file.
 // If validate is true, buf protovalidate constraints are included.
-func WriteProtobuf(w io.Writer, schema *Schema, info map[string]any, validate bool) error {
+func WriteProtobuf(w io.Writer, schema *Config, info map[string]any, validate bool) error {
 	g := &protoGen{
 		w:        w,
 		messages: make(map[string]bool),
@@ -45,18 +43,18 @@ type protoGen struct {
 	validate bool
 }
 
-func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
+func (g *protoGen) emitMessage(name string, s *Config, depth int) {
 	if g.messages[name] {
 		return
 	}
 	g.messages[name] = true
 
-	merged := flattenComposite(s)
+	merged := FlattenComposite(s)
 	indent := strings.Repeat("  ", depth)
 
 	type propEntry struct {
 		name   string
-		schema *Schema
+		schema *Config
 	}
 	var props []propEntry
 	if merged.Properties != nil {
@@ -69,26 +67,26 @@ func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
 	// Emit nested messages for child structs first.
 	var nested []struct {
 		msgName string
-		schema  *Schema
+		schema  *Config
 	}
 	for _, p := range props {
 		childName := protoMessageName(p.name)
 		if isScalarUnion(p.schema) {
 			continue
 		}
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 		if hasProps(flat) {
 			nested = append(nested, struct {
 				msgName string
-				schema  *Schema
+				schema  *Config
 			}{childName, p.schema})
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				nested = append(nested, struct {
 					msgName string
-					schema  *Schema
+					schema  *Config
 				}{childName + "Entry", flat.AdditionalProperties})
 			}
 		}
@@ -114,7 +112,7 @@ func (g *protoGen) emitMessage(name string, s *Schema, depth int) {
 	// Emit fields.
 	fieldNum := 1
 	for i, p := range props {
-		flat := flattenComposite(p.schema)
+		flat := FlattenComposite(p.schema)
 		protoType := g.protoType(p.name, p.schema)
 		fieldName := protoFieldName(p.name)
 
@@ -159,7 +157,7 @@ type protoTypeInfo struct {
 	isMap    bool
 }
 
-func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {
+func (g *protoGen) protoType(contextName string, s *Config) protoTypeInfo {
 	if s == nil {
 		return protoTypeInfo{typeName: "string", optional: true}
 	}
@@ -169,7 +167,7 @@ func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {
 		return protoTypeInfo{typeName: "string", optional: true}
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	if len(flat.Enum) > 0 {
 		return protoTypeInfo{typeName: "string", optional: true}
@@ -197,7 +195,7 @@ func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {
 			return protoTypeInfo{typeName: protoMessageName(contextName), optional: true}
 		}
 		if flat.AdditionalProperties != nil {
-			apFlat := flattenComposite(flat.AdditionalProperties)
+			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
 				return protoTypeInfo{typeName: protoMessageName(contextName) + "Entry", isMap: true}
 			}
@@ -211,7 +209,7 @@ func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {
 		return protoTypeInfo{typeName: protoMessageName(contextName), optional: true}
 	}
 	if flat.AdditionalProperties != nil {
-		apFlat := flattenComposite(flat.AdditionalProperties)
+		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			return protoTypeInfo{typeName: protoMessageName(contextName) + "Entry", isMap: true}
 		}
@@ -222,12 +220,12 @@ func (g *protoGen) protoType(contextName string, s *Schema) protoTypeInfo {
 	return protoTypeInfo{typeName: "string", optional: true}
 }
 
-func (g *protoGen) protoConstraint(s *Schema) string {
+func (g *protoGen) protoConstraint(s *Config) string {
 	if !g.validate {
 		return ""
 	}
 
-	flat := flattenComposite(s)
+	flat := FlattenComposite(s)
 
 	var parts []string
 
@@ -349,19 +347,4 @@ func protoFieldName(s string) string {
 		s = "x_" + s
 	}
 	return s
-}
-
-func newProtobufFormat() *Format {
-	var validate bool
-	return &Format{
-		Name:        "protobuf",
-		Aliases:     []string{"proto"},
-		Description: "Proto3 messages",
-		Register: func(cmd *cobra.Command) {
-			cmd.Flags().BoolVar(&validate, "validate", false, "Include buf protovalidate constraints")
-		},
-		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
-			return WriteProtobuf(w, schema, info, validate)
-		},
-	}
 }
