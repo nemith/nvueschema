@@ -436,3 +436,14 @@ func toSnake(s string) string {
 func sanitizeDocstring(s string) string {
 	return strings.ReplaceAll(s, `"""`, `\"\"\"`)
 }
+
+func newPydanticFormat() *Format {
+	return &Format{
+		Name:        "pydantic",
+		Aliases:     []string{"py"},
+		Description: "Python Pydantic v2 models",
+		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
+			return WritePydantic(w, schema, info)
+		},
+	}
+}

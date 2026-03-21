@@ -398,3 +398,13 @@ func yangSafe(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 	return s
 }
+
+func newYANGFormat() *Format {
+	return &Format{
+		Name:        "yang",
+		Description: "YANG module",
+		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
+			return WriteYANG(w, schema, info)
+		},
+	}
+}

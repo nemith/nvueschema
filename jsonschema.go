@@ -351,3 +351,14 @@ func formatDefs() map[string]any {
 	}
 	return defs
 }
+
+func newJSONSchemaFormat() *Format {
+	return &Format{
+		Name:        "jsonschema",
+		Aliases:     []string{"js"},
+		Description: "JSON Schema 2020-12",
+		Write: func(w io.Writer, schema *Schema, info map[string]any) error {
+			return WriteJSONSchema(w, schema, info)
+		},
+	}
+}
