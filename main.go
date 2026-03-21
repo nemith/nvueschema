@@ -54,6 +54,7 @@ func main() {
 
 	root.AddCommand(newGenerateCmd())
 	root.AddCommand(newFetchCmd())
+	root.AddCommand(newValidateCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
