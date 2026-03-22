@@ -27,10 +27,20 @@ func FlattenComposite(s *Config) *Config {
 		Description: s.Description,
 		Type:        s.Type,
 		Nullable:    s.Nullable,
+		Enum:        s.Enum,
+		Default:     s.Default,
+		Format:      s.Format,
+		Pattern:     s.Pattern,
+		Minimum:     s.Minimum,
+		Maximum:     s.Maximum,
+		MinLength:   s.MinLength,
+		MaxLength:   s.MaxLength,
+		Items:       s.Items,
 		Properties:  make(map[string]*Config),
 	}
 
-	// Merge all composition variants — they all contribute properties.
+	// Merge all composition variants — they all contribute properties
+	// and leaf-level fields when not already set on the top-level schema.
 	for _, group := range [][]*Config{s.AllOf, s.AnyOf, s.OneOf} {
 		for _, sub := range group {
 			flat := FlattenComposite(sub)
@@ -39,6 +49,30 @@ func FlattenComposite(s *Config) *Config {
 			}
 			if flat.Type != "" && merged.Type == "" {
 				merged.Type = flat.Type
+			}
+			if flat.Format != "" && merged.Format == "" {
+				merged.Format = flat.Format
+			}
+			if flat.Default != nil && merged.Default == nil {
+				merged.Default = flat.Default
+			}
+			if flat.Pattern != "" && merged.Pattern == "" {
+				merged.Pattern = flat.Pattern
+			}
+			if flat.Minimum != nil && merged.Minimum == nil {
+				merged.Minimum = flat.Minimum
+			}
+			if flat.Maximum != nil && merged.Maximum == nil {
+				merged.Maximum = flat.Maximum
+			}
+			if flat.MinLength != nil && merged.MinLength == nil {
+				merged.MinLength = flat.MinLength
+			}
+			if flat.MaxLength != nil && merged.MaxLength == nil {
+				merged.MaxLength = flat.MaxLength
+			}
+			if flat.Items != nil && merged.Items == nil {
+				merged.Items = flat.Items
 			}
 			maps.Copy(merged.Properties, flat.Properties)
 			merged.Required = append(merged.Required, flat.Required...)

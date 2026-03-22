@@ -35,6 +35,16 @@ func BuildShowTree(name string, s *Config) *Node {
 		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
 	}
 
+	// If the root itself is a map, add a [*] child and recurse into it.
+	if len(props) == 0 && flat.AdditionalProperties != nil {
+		apFlat := FlattenComposite(flat.AdditionalProperties)
+		if hasProps(apFlat) {
+			starNode := BuildShowTree("[*]", flat.AdditionalProperties)
+			node.Children = append(node.Children, starNode)
+			return node
+		}
+	}
+
 	for _, p := range props {
 		childFlat := FlattenComposite(p.schema)
 
@@ -157,7 +167,7 @@ func ScalarUnionTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
 					vals = append(vals, quoteLiteral(fmt.Sprint(e)))
 				}
 			}
-			segs = append(segs, TypeSegment{strings.Join(vals, ", "), true})
+			segs = append(segs, TypeSegment{strings.Join(vals, " | "), true})
 		} else {
 			segs = append(segs, TypeSegment{v.Type, false})
 		}

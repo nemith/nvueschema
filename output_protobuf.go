@@ -268,10 +268,10 @@ func (g *protoGen) protoConstraint(s *Config) string {
 	// Number constraints.
 	if flat.Type == "number" {
 		if flat.Minimum != nil {
-			parts = append(parts, fmt.Sprintf("(buf.validate.field).double.gte = %v", *flat.Minimum))
+			parts = append(parts, fmt.Sprintf("(buf.validate.field).double.gte = %s", fmtNum(*flat.Minimum)))
 		}
 		if flat.Maximum != nil {
-			parts = append(parts, fmt.Sprintf("(buf.validate.field).double.lte = %v", *flat.Maximum))
+			parts = append(parts, fmt.Sprintf("(buf.validate.field).double.lte = %s", fmtNum(*flat.Maximum)))
 		}
 	}
 

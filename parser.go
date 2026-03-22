@@ -36,8 +36,7 @@ type Config struct {
 	Format                string             `json:"format,omitempty"`
 	Required              []string           `json:"required,omitempty"`
 	XModelName            string             `json:"x-model-name,omitempty"`
-	UnevaluatedProperties *bool              `json:"x-unevaluatedProperties,omitempty"`
-	SourceRef             string             `json:"-"` // x-defs key or API path, not serialized
+	SourceRef string `json:"-"` // x-defs key or API path, not serialized
 }
 
 // Parser resolves $ref pointers within x-defs and extracts the config tree.
@@ -129,8 +128,9 @@ func (e *Parser) resolveRef(defName string) (*Config, error) {
 		return s, nil
 	}
 	if e.stack[defName] {
-		s := &Config{Description: fmt.Sprintf("(circular ref: %s)", defName)}
-		return s, nil
+		// Return a stub instead of recursing infinitely. The description
+		// makes the cycle visible in show/diff output.
+		return &Config{Description: fmt.Sprintf("WARNING: circular ref: %s", defName)}, nil
 	}
 	e.stack[defName] = true
 	defer delete(e.stack, defName)
@@ -186,10 +186,6 @@ func (e *Parser) resolveNode(raw map[string]any) (*Config, error) {
 	if v, ok := raw["x-model-name"].(string); ok {
 		s.XModelName = v
 	}
-	if v, ok := raw["x-unevaluatedProperties"].(bool); ok {
-		s.UnevaluatedProperties = &v
-	}
-
 	if v, ok := raw["minimum"].(float64); ok {
 		s.Minimum = &v
 	}

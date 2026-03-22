@@ -197,7 +197,7 @@ func emitYANGLeaf(w io.Writer, name string, s *Config, depth int) {
 		fmt.Fprintf(w, "%s  description\n%s    %q;\n", indent, indent, s.Description)
 	}
 	if s.Default != nil {
-		fmt.Fprintf(w, "%s  default %q;\n", indent, fmt.Sprint(s.Default))
+		fmt.Fprintf(w, "%s  default %q;\n", indent, fmtDefault(s.Default))
 	}
 	fmt.Fprintf(w, "%s}\n", indent)
 }
@@ -253,7 +253,7 @@ func emitYANGUnionLeaf(w io.Writer, name string, s *Config, depth int) {
 		fmt.Fprintf(w, "%s  description\n%s    %q;\n", indent, indent, s.Description)
 	}
 	if s.Default != nil {
-		fmt.Fprintf(w, "%s  default %q;\n", indent, fmt.Sprint(s.Default))
+		fmt.Fprintf(w, "%s  default %q;\n", indent, fmtDefault(s.Default))
 	}
 	fmt.Fprintf(w, "%s}\n", indent)
 }
@@ -299,10 +299,10 @@ func emitYANGTypeBlock(w io.Writer, yangType string, s *Config, indent string) {
 		lo := "min"
 		hi := "max"
 		if s.Minimum != nil {
-			lo = fmt.Sprintf("%v", *s.Minimum)
+			lo = fmtNum(*s.Minimum)
 		}
 		if s.Maximum != nil {
-			hi = fmt.Sprintf("%v", *s.Maximum)
+			hi = fmtNum(*s.Maximum)
 		}
 		fmt.Fprintf(w, "%s    range \"%s..%s\";\n", indent, lo, hi)
 	}

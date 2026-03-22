@@ -79,22 +79,9 @@ func diffSchemas(old, newer *Config, path string) []Change {
 			oldChildFlat := FlattenComposite(oldChild)
 			newChildFlat := FlattenComposite(newChild)
 			if !hasProps(oldChildFlat) && hasProps(newChildFlat) {
-				for _, n := range propNames(newChildFlat) {
-					changes = append(changes, Change{
-						Path: joinPath(childPath, n),
-						Kind: "added",
-						Desc: propDescription(newChildFlat, n),
-					})
-				}
 				changes = append(changes, diffSchemas(&Config{}, newChild, childPath)...)
 			} else if hasProps(oldChildFlat) && !hasProps(newChildFlat) {
-				for _, n := range propNames(oldChildFlat) {
-					changes = append(changes, Change{
-						Path: joinPath(childPath, n),
-						Kind: "removed",
-						Desc: propDescription(oldChildFlat, n),
-					})
-				}
+				changes = append(changes, diffSchemas(oldChild, &Config{}, childPath)...)
 			}
 			continue
 		}
@@ -237,31 +224,29 @@ func effectiveType(s *Config) string {
 }
 
 func diffEnums(old, newer *Config) string {
-	oldFlat := FlattenComposite(old)
-	newFlat := FlattenComposite(newer)
+	oldVals := collectEnumValues(old)
+	newVals := collectEnumValues(newer)
 
-	if len(oldFlat.Enum) == 0 && len(newFlat.Enum) == 0 {
+	if len(oldVals) == 0 && len(newVals) == 0 {
 		return ""
 	}
 
 	oldSet := make(map[string]bool)
-	for _, e := range oldFlat.Enum {
-		oldSet[fmt.Sprint(e)] = true
+	for _, s := range oldVals {
+		oldSet[s] = true
 	}
 	newSet := make(map[string]bool)
-	for _, e := range newFlat.Enum {
-		newSet[fmt.Sprint(e)] = true
+	for _, s := range newVals {
+		newSet[s] = true
 	}
 
 	var added, removed []string
-	for _, e := range newFlat.Enum {
-		s := fmt.Sprint(e)
+	for _, s := range newVals {
 		if !oldSet[s] {
 			added = append(added, s)
 		}
 	}
-	for _, e := range oldFlat.Enum {
-		s := fmt.Sprint(e)
+	for _, s := range oldVals {
 		if !newSet[s] {
 			removed = append(removed, s)
 		}
@@ -279,6 +264,39 @@ func diffEnums(old, newer *Config) string {
 		parts = append(parts, "enum removed: "+strings.Join(removed, ", "))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// collectEnumValues gathers all non-nil enum values from a schema,
+// handling both simple enums and scalar unions (anyOf/oneOf with enum variants).
+func collectEnumValues(s *Config) []string {
+	// Scalar unions spread enums across multiple variants.
+	if isScalarUnion(s) {
+		variants := s.AnyOf
+		if len(variants) == 0 {
+			variants = s.OneOf
+		}
+		var vals []string
+		for _, v := range variants {
+			for _, e := range v.Enum {
+				if e != nil {
+					vals = append(vals, fmtDefault(e))
+				}
+			}
+			if len(v.Enum) == 0 && v.Type != "" {
+				vals = append(vals, v.Type)
+			}
+		}
+		return vals
+	}
+	// Simple enums — FlattenComposite now preserves Enum from the top-level schema.
+	flat := FlattenComposite(s)
+	var vals []string
+	for _, e := range flat.Enum {
+		if e != nil {
+			vals = append(vals, fmtDefault(e))
+		}
+	}
+	return vals
 }
 
 func diffConstraints(old, newer *Config, path string) []Change {
@@ -326,7 +344,7 @@ func diffConstraints(old, newer *Config, path string) []Change {
 	if fmt.Sprint(oldFlat.Default) != fmt.Sprint(newFlat.Default) {
 		changes = append(changes, Change{
 			Path: path, Kind: "changed",
-			Desc: fmt.Sprintf("default: %v -> %v", oldFlat.Default, newFlat.Default),
+			Desc: fmt.Sprintf("default: %s -> %s", fmtDefault(oldFlat.Default), fmtDefault(newFlat.Default)),
 		})
 	}
 
@@ -353,26 +371,6 @@ func hasProperty(s *Config, name string) bool {
 	}
 	_, ok := s.Properties[name]
 	return ok
-}
-
-func propDescription(s *Config, name string) string {
-	if s == nil || s.Properties == nil {
-		return ""
-	}
-	p := s.Properties[name]
-	if p == nil {
-		return ""
-	}
-	flat := FlattenComposite(p)
-	desc := flat.Description
-	if desc == "" {
-		return ""
-	}
-	first, _, _ := strings.Cut(desc, "\n")
-	if len(first) > 80 {
-		first = first[:77] + "..."
-	}
-	return first
 }
 
 // joinPath joins two dotted path segments.

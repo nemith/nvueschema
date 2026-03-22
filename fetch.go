@@ -108,7 +108,7 @@ func FetchSpec(v VersionInfo, noCache bool) ([]byte, error) {
 }
 
 func cachePaths(slug string) (jsonPath, tsPath string, err error) {
-	layout, err := dothome.CLIAppLayout(dothome.AppConfig{Name: "cumulus-schema"})
+	layout, err := dothome.CLIAppLayout(dothome.AppConfig{Name: "nvueschema"})
 	if err != nil {
 		return "", "", fmt.Errorf("resolving cache dir: %w", err)
 	}

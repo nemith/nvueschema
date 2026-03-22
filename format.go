@@ -37,6 +37,9 @@ func fmtNumPtr(p *float64) string {
 // fmtDefault formats a default value for display.
 // Numbers are formatted cleanly, strings are quoted.
 func fmtDefault(v any) string {
+	if v == nil {
+		return "null"
+	}
 	switch n := v.(type) {
 	case float64:
 		return fmtNum(n)
