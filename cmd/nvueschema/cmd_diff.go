@@ -17,6 +17,7 @@ func newDiffCmd() *cobra.Command {
 		noCache    bool
 		paths      []string
 		outputMode string
+		affectedFile string
 	)
 
 	cmd := &cobra.Command{
@@ -28,11 +29,13 @@ what was added, removed, or changed.
 
 Arguments can be file paths or version strings (e.g. "5.14").
 Use --path to filter to specific subtrees (repeatable).
+Use --affected to show only changes that affected paths in a config file.
 Use --output flat for a greppable output with full paths.
 
 Examples:
   nvueschema diff 5.14 5.16
   nvueschema diff 5.0 5.16 --path interface
+  nvueschema diff 5.15 5.16 --affected config.yaml
   nvueschema diff 5.0 5.16 -O flat | grep bgp
 `),
 		Args: cobra.ExactArgs(2),
@@ -59,6 +62,15 @@ Examples:
 
 			if len(paths) > 0 {
 				diff = diff.Filter(paths)
+			}
+
+			if affectedFile != "" {
+				config, err := loadConfig(affectedFile, "")
+				if err != nil {
+					return fmt.Errorf("loading config: %w", err)
+				}
+				configPaths := nvue.ConfigLeafPaths(config, oldSchema, newSchema)
+				diff = diff.FilterAffected(configPaths)
 			}
 
 			if len(diff.Changes) == 0 {
@@ -98,6 +110,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely")
 	cmd.Flags().StringArrayVar(&paths, "path", nil, "Filter to a subtree (repeatable)")
+	cmd.Flags().StringVar(&affectedFile, "affected", "", "Show only changes affecteding paths in a config file")
 	cmd.Flags().StringVarP(&outputMode, "output", "O", "tree", "Output mode: tree or flat")
 
 	return cmd

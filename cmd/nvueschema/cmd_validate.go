@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func newValidateCmd() *cobra.Command {
@@ -83,38 +81,4 @@ Examples:
 	cmd.Flags().StringVar(&configFmt, "config-format", "", "Config file format: yaml or json (default: auto-detect from extension)")
 
 	return cmd
-}
-
-func loadConfig(path, format string) (any, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	ext := strings.ToLower(format)
-	if ext == "" {
-		ext = strings.ToLower(filepath.Ext(path))
-	}
-	switch ext {
-	case ".yaml", ".yml", "yaml", "yml":
-		var v any
-		if err := yaml.Unmarshal(data, &v); err != nil {
-			return nil, fmt.Errorf("parsing YAML: %w", err)
-		}
-		return v, nil
-
-	case ".json", "json":
-		var v any
-		if err := json.Unmarshal(data, &v); err != nil {
-			return nil, fmt.Errorf("parsing JSON: %w", err)
-		}
-		return v, nil
-
-	default:
-		var v any
-		if err := yaml.Unmarshal(data, &v); err != nil {
-			return nil, fmt.Errorf("could not parse %s as YAML or JSON: %w", path, err)
-		}
-		return v, nil
-	}
 }

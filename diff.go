@@ -31,6 +31,19 @@ func (d *Diff) Filter(paths []string) *Diff {
 	return &Diff{Changes: filterChanges(d.Changes, paths)}
 }
 
+// FilterAffected returns a new Diff containing only changes that overlap with
+// the given config paths. A change is included if it is at, above, or below
+// any config path (bidirectional prefix match).
+func (d *Diff) FilterAffected(configPaths []string) *Diff {
+	var out []Change
+	for _, c := range d.Changes {
+		if affectMatches(c.Path, configPaths) {
+			out = append(out, c)
+		}
+	}
+	return &Diff{Changes: out}
+}
+
 func diffSchemas(old, newer *Config, path string) []Change {
 	oldFlat := FlattenComposite(old)
 	newFlat := FlattenComposite(newer)

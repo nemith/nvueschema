@@ -24,6 +24,15 @@ Type "nvueschema diff 5.15 5.16 -O flat --path interface"
 Enter
 Sleep 4s
 
+# Filter diff to only what affects your config
+Ctrl+L
+Type "cat testdata/config.yaml"
+Enter
+Sleep 3s
+Type "nvueschema diff 5.15 5.16 --affected testdata/config.yaml"
+Enter
+Sleep 4s
+
 # Generate YANG
 Ctrl+L
 Type "nvueschema gen -f yang 5.16 | head -20"
