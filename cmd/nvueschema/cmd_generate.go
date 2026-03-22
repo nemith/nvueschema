@@ -13,7 +13,7 @@ import (
 func resolveSpec(arg string, noCache bool) (*nvueschema.Parser, error) {
 	v, err := nvueschema.ParseVersion(arg)
 	if err == nil {
-		data, err := nvueschema.FetchSpec(v, noCache)
+		data, err := cachedFetch(v, noCache)
 		if err != nil {
 			return nil, err
 		}

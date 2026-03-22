@@ -1,7 +1,7 @@
 # nvueschema demo
 Output demo.gif
 Set Width 1200
-Set Height 800
+Set Height 500
 Set FontSize 16
 Set Theme "Catppuccin Mocha"
 Set Padding 20

@@ -37,7 +37,7 @@ Examples:
 				return err
 			}
 
-			data, err := nvueschema.FetchSpec(v, noCache)
+			data, err := cachedFetch(v, noCache)
 			if err != nil {
 				return err
 			}

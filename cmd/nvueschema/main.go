@@ -47,10 +47,17 @@ func formatList(formats []*Format) string {
 }
 
 func main() {
+	var verbose bool
+
 	root := &cobra.Command{
 		Use:   "nvueschema",
 		Short: "Extract and generate config schemas from Cumulus Linux NVUE OpenAPI specs",
+		PersistentPreRun: func(_ *cobra.Command, _ []string) {
+			setVerbose(verbose)
+		},
 	}
+
+	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 
 	root.AddCommand(newGenerateCmd())
 	root.AddCommand(newFetchCmd())
