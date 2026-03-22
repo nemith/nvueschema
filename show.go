@@ -143,7 +143,9 @@ func LeafTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
 		t = t + "(" + strings.Join(constraints, " ") + ")"
 	}
 
-	segs = append(segs, TypeSegment{t, false})
+	if t != "" {
+		segs = append(segs, TypeSegment{t, false})
+	}
 	if flat.Default != nil {
 		return segs, fmtDefault(flat.Default)
 	}

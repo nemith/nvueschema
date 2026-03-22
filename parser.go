@@ -227,6 +227,11 @@ func (e *Parser) resolveNode(raw map[string]any) (*Config, error) {
 			if err != nil {
 				return nil, fmt.Errorf("property %q: %w", k, err)
 			}
+			// Prune action-only containers: nodes with no type, no properties,
+			// and no additionalProperties. These held only @-prefixed actions.
+			if isEmptySchema(resolved) {
+				continue
+			}
 			s.Properties[k] = resolved
 		}
 	}
@@ -273,6 +278,18 @@ func (e *Parser) resolveNode(raw map[string]any) (*Config, error) {
 	}
 
 	return s, nil
+}
+
+// isEmptySchema returns true if a resolved schema has no type information,
+// no properties, and no composition — i.e., it's an action-only container
+// that contributes nothing to the config tree.
+func isEmptySchema(s *Config) bool {
+	flat := FlattenComposite(s)
+	return flat.Type == "" &&
+		len(flat.Properties) == 0 &&
+		flat.AdditionalProperties == nil &&
+		len(flat.Enum) == 0 &&
+		!isScalarUnion(s)
 }
 
 func refToDefName(ref string) string {
