@@ -151,10 +151,7 @@ func (s *Config) ToJSONSchema() map[string]any {
 }
 
 func scalarUnionToJSONSchema(s *Config) map[string]any {
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
+	variants := scalarUnionVariants(s)
 
 	out := map[string]any{}
 	if s.Description != "" {
@@ -201,58 +198,40 @@ func scalarUnionToJSONSchema(s *Config) map[string]any {
 
 // formatToJSONSchemaDef returns the $defs key for a format, or "" if not mapped.
 func formatToJSONSchemaDef(format string) string {
-	switch format {
-	case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
-		return "ipv4-address"
-	case "ipv6", "ipv6-netmask":
-		return "ipv6-address"
-	case "ipv4-prefix", "ipv4-sub-prefix", "ipv4-multicast-prefix",
-		"aggregate-ipv4-prefix":
-		return "ipv4-prefix"
-	case "ipv6-prefix", "ipv6-sub-prefix", "aggregate-ipv6-prefix":
-		return "ipv6-prefix"
-	case "dns-server-ip-address":
-		return "ip-address"
-	case "mac":
-		return "mac-address"
-	case "interface-name", "swp-name", "bond-swp-name", "transceiver-name",
-		"bridge-name":
-		return "interface-name"
-	case "vrf-name":
-		return "vrf-name"
-	case "vlan-range":
-		return "vlan-range"
-	case "ip-port-range":
-		return "port-range"
-	case "route-distinguisher":
-		return "route-distinguisher"
-	case "route-target", "route-target-any":
-		return "route-target"
-	case "ext-community":
-		return "ext-community"
-	case "community", "well-known-community", "large-community":
-		return "bgp-community"
-	case "evpn-route":
-		return "evpn-route"
-	case "asn-range":
-		return "asn-range"
-	case "es-identifier":
-		return "es-identifier"
-	case "segment-identifier":
-		return "segment-identifier"
-	case "bgp-regex":
-		return "bgp-regex"
-	case "idn-hostname", "domain-name":
-		return "hostname"
-	case "user-name":
-		return "user-name"
-	case "snmp-branch", "oid":
-		return "snmp-oid"
-	case "secret-string", "key-string":
-		return "secret-string"
-	default:
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
+	if t, ok := jsonSchemaDefTypes[k]; ok {
+		return t
+	}
+	return ""
+}
+
+var jsonSchemaDefTypes = map[formatKey]string{
+	fmtIPv4Addr:          "ipv4-address",
+	fmtIPv6Addr:          "ipv6-address",
+	fmtIPAddr:            "ip-address",
+	fmtIPv4Prefix:        "ipv4-prefix",
+	fmtIPv6Prefix:        "ipv6-prefix",
+	fmtMAC:               "mac-address",
+	fmtInterfaceName:     "interface-name",
+	fmtVrfName:           "vrf-name",
+	fmtVlanRange:         "vlan-range",
+	fmtPortRange:         "port-range",
+	fmtRouteDistinguisher: "route-distinguisher",
+	fmtRouteTarget:       "route-target",
+	fmtExtCommunity:      "ext-community",
+	fmtBgpCommunity:      "bgp-community",
+	fmtEvpnRoute:         "evpn-route",
+	fmtAsnRange:          "asn-range",
+	fmtEsIdentifier:      "es-identifier",
+	fmtSegmentIdentifier: "segment-identifier",
+	fmtBgpRegex:          "bgp-regex",
+	fmtHostname:          "hostname",
+	fmtUserName:          "user-name",
+	fmtSnmpOid:           "snmp-oid",
+	fmtSecretString:      "secret-string",
 }
 
 // formatDefs returns the $defs block with pattern-validated format types.

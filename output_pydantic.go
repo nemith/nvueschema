@@ -3,7 +3,6 @@ package nvueschema
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -30,23 +29,13 @@ func WritePydantic(w io.Writer, schema *Config, info map[string]any) error {
 	fmt.Fprintln(w, "from pydantic import AnyUrl, BaseModel, Field, FilePath, SecretStr")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "# Validated network configuration types")
-	fmt.Fprintln(w, `MacAddress = Annotated[str, Field(pattern=r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")]`)
-	fmt.Fprintln(w, `InterfaceName = Annotated[str, Field(pattern=r"^(swp|eth|bond|br|lo|vlan|peerlink|erspan|mgmt)[a-zA-Z0-9_./-]*$")]`)
-	fmt.Fprintln(w, `VrfName = Annotated[str, Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{0,14}$")]`)
-	fmt.Fprintln(w, `VlanRange = Annotated[str, Field(pattern=r"^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$")]`)
-	fmt.Fprintln(w, `PortRange = Annotated[str, Field(pattern=r"^[0-9]+(-[0-9]+)?$")]`)
-	fmt.Fprintln(w, `RouteDistinguisher = Annotated[str, Field(pattern=r"^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$")]`)
-	fmt.Fprintln(w, `RouteTarget = Annotated[str, Field(pattern=r"^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$")]`)
-	fmt.Fprintln(w, `ExtCommunity = Annotated[str, Field(pattern=r"^(rt|soo|bandwidth)\s+\S+$")]`)
-	fmt.Fprintln(w, `BgpCommunity = Annotated[str, Field(pattern=r"^(\d+:\d+|no-export|no-advertise|local-AS|no-peer|blackhole|graceful-shutdown|accept-own|internet)$")]`)
-	fmt.Fprintln(w, `EvpnRoute = Annotated[str, Field(pattern=r"^(macip|imet|prefix)$")]`)
-	fmt.Fprintln(w, `BgpRegex = Annotated[str, Field(min_length=1)]`)
-	fmt.Fprintln(w, `AsnRange = Annotated[str, Field(pattern=r"^(\d+|\d+-\d+)(,(\d+|\d+-\d+))*$")]`)
-	fmt.Fprintln(w, `EsIdentifier = Annotated[str, Field(pattern=r"^([0-9A-Fa-f]{2}:){9}[0-9A-Fa-f]{2}$")]`)
-	fmt.Fprintln(w, `SegmentIdentifier = Annotated[str, Field(pattern=r"^\d+$")]`)
-	fmt.Fprintln(w, `Hostname = Annotated[str, Field(pattern=r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$")]`)
-	fmt.Fprintln(w, `UserName = Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_-]*[$]?$")]`)
-	fmt.Fprintln(w, `SnmpOid = Annotated[str, Field(pattern=r"^\.?(\d+\.)*\d+$")]`)
+	for _, td := range typedefs {
+		if td.pattern != "" {
+			fmt.Fprintf(w, "%s = Annotated[str, Field(pattern=r\"%s\")]\n", td.name, td.pattern)
+		} else {
+			fmt.Fprintf(w, "%s = Annotated[str, Field(min_length=1)]\n", td.name)
+		}
+	}
 	fmt.Fprintln(w)
 
 	g.emitModel("NvueConfig", schema)
@@ -66,18 +55,7 @@ func (g *pyGen) emitModel(name string, s *Config) {
 	g.models[name] = true
 
 	merged := FlattenComposite(s)
-
-	type propEntry struct {
-		name   string
-		schema *Config
-	}
-	var props []propEntry
-	if merged.Properties != nil {
-		for k, v := range merged.Properties {
-			props = append(props, propEntry{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(merged)
 
 	// Emit child models first (depth-first).
 	for _, p := range props {
@@ -214,10 +192,7 @@ func (g *pyGen) pyType(contextName string, s *Config) string {
 
 // scalarUnionType builds a Union[...] type string from scalar anyOf/oneOf branches.
 func scalarUnionType(s *Config) string {
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
+	variants := scalarUnionVariants(s)
 	seen := make(map[string]bool)
 	var types []string
 	for _, v := range variants {
@@ -267,110 +242,56 @@ func scalarPyType(s *Config) string {
 	}
 }
 
-// formatToPyType maps OpenAPI format strings to Python/Pydantic types.
+// formatToPyType maps OpenAPI format strings to Python/Pydantic types via the format registry.
 func formatToPyType(format string) string {
-	switch format {
-	// IP addresses
-	case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
-		return "IPv4Address"
-	case "ipv6", "ipv6-netmask":
-		return "IPv6Address"
-	case "dns-server-ip-address":
-		return "Union[IPv4Address, IPv6Address]"
-
-	// IP networks
-	case "ipv4-prefix", "ipv4-sub-prefix", "ipv4-multicast-prefix",
-		"aggregate-ipv4-prefix":
-		return "IPv4Network"
-	case "ipv6-prefix", "ipv6-sub-prefix", "aggregate-ipv6-prefix":
-		return "IPv6Network"
-
-	// Numeric types misrepresented as string
-	case "integer", "integer-id":
-		return "int"
-	case "float", "number":
-		return "float"
-
-	// Temporal
-	case "date-time":
-		return "datetime"
-	case "clock-date":
-		return "date"
-	case "clock-time":
-		return "time"
-
-	// Constrained strings — use NewType aliases for clarity
-	case "mac":
-		return "MacAddress"
-	case "interface-name", "swp-name", "bond-swp-name", "transceiver-name",
-		"bridge-name":
-		return "InterfaceName"
-	case "vrf-name":
-		return "VrfName"
-	case "vlan-range":
-		return "VlanRange"
-	case "ip-port-range":
-		return "PortRange"
-	case "route-distinguisher":
-		return "RouteDistinguisher"
-	case "route-target", "route-target-any":
-		return "RouteTarget"
-	case "ext-community":
-		return "ExtCommunity"
-	case "community", "well-known-community", "large-community":
-		return "BgpCommunity"
-	case "evpn-route":
-		return "EvpnRoute"
-	case "bgp-regex":
-		return "BgpRegex"
-	case "asn-range":
-		return "AsnRange"
-	case "es-identifier":
-		return "EsIdentifier"
-	case "segment-identifier":
-		return "SegmentIdentifier"
-	case "secret-string", "key-string":
-		return "SecretStr"
-	case "idn-hostname", "domain-name":
-		return "Hostname"
-	case "user-name":
-		return "UserName"
-	case "generic-name", "item-name", "profile-name":
-		return "str"
-	case "file-name":
-		return "FilePath"
-	case "repo-url", "remote-url-fetch", "remote-url-upload":
-		return "AnyUrl"
-	case "repo-dist", "repo-pool":
-		return "str"
-	case "snmp-branch", "oid":
-		return "SnmpOid"
-	case "json-pointer":
-		return "str"
-	case "clock-id", "ptp-port-id":
-		return "str"
-	case "sequence-id":
-		return "int"
-	case "command", "command-path":
-		return "str"
-	case "interval", "rate-limit", "mss-format", "string":
-		return "str"
-
-	default:
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
+	if t, ok := pyFormatTypes[k]; ok {
+		return t
+	}
+	return ""
 }
 
-func toPascal(s string) string {
-	parts := strings.FieldsFunc(s, func(c rune) bool {
-		return c == '-' || c == '_' || c == '.'
-	})
-	for i, p := range parts {
-		if len(p) > 0 {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
-		}
-	}
-	return strings.Join(parts, "")
+var pyFormatTypes = map[formatKey]string{
+	fmtIPv4Addr:          "IPv4Address",
+	fmtIPv6Addr:          "IPv6Address",
+	fmtIPAddr:            "Union[IPv4Address, IPv6Address]",
+	fmtIPv4Prefix:        "IPv4Network",
+	fmtIPv6Prefix:        "IPv6Network",
+	fmtMAC:               "MacAddress",
+	fmtInterfaceName:     "InterfaceName",
+	fmtVrfName:           "VrfName",
+	fmtVlanRange:         "VlanRange",
+	fmtPortRange:         "PortRange",
+	fmtRouteDistinguisher: "RouteDistinguisher",
+	fmtRouteTarget:       "RouteTarget",
+	fmtExtCommunity:      "ExtCommunity",
+	fmtBgpCommunity:      "BgpCommunity",
+	fmtEvpnRoute:         "EvpnRoute",
+	fmtBgpRegex:          "BgpRegex",
+	fmtAsnRange:          "AsnRange",
+	fmtEsIdentifier:      "EsIdentifier",
+	fmtSegmentIdentifier: "SegmentIdentifier",
+	fmtHostname:          "Hostname",
+	fmtUserName:          "UserName",
+	fmtSnmpOid:           "SnmpOid",
+	fmtSecretString:      "SecretStr",
+	fmtInteger:           "int",
+	fmtFloat:             "float",
+	fmtDateTime:          "datetime",
+	fmtClockDate:         "date",
+	fmtClockTime:         "time",
+	fmtGenericName:       "str",
+	fmtFileName:          "FilePath",
+	fmtRepoURL:           "AnyUrl",
+	fmtRepoDist:          "str",
+	fmtJSONPointer:       "str",
+	fmtClockID:           "str",
+	fmtSequenceID:        "int",
+	fmtCommand:           "str",
+	fmtInterval:          "str",
 }
 
 var pyReserved = map[string]bool{

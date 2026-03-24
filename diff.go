@@ -3,7 +3,7 @@ package nvueschema
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -203,10 +203,7 @@ func effectiveType(s *Config) string {
 		return "unknown"
 	}
 	if isScalarUnion(s) {
-		variants := s.AnyOf
-		if len(variants) == 0 {
-			variants = s.OneOf
-		}
+		variants := scalarUnionVariants(s)
 		var types []string
 		for _, v := range variants {
 			t := v.Type
@@ -284,10 +281,7 @@ func diffEnums(old, newer *Config) string {
 func collectEnumValues(s *Config) []string {
 	// Scalar unions spread enums across multiple variants.
 	if isScalarUnion(s) {
-		variants := s.AnyOf
-		if len(variants) == 0 {
-			variants = s.OneOf
-		}
+		variants := scalarUnionVariants(s)
 		var vals []string
 		for _, v := range variants {
 			for _, e := range v.Enum {
@@ -373,7 +367,7 @@ func propNames(s *Config) []string {
 	for k := range s.Properties {
 		names = append(names, k)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 

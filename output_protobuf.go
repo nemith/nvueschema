@@ -3,7 +3,6 @@ package nvueschema
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -51,18 +50,7 @@ func (g *protoGen) emitMessage(name string, s *Config, depth int) {
 
 	merged := FlattenComposite(s)
 	indent := strings.Repeat("  ", depth)
-
-	type propEntry struct {
-		name   string
-		schema *Config
-	}
-	var props []propEntry
-	if merged.Properties != nil {
-		for k, v := range merged.Properties {
-			props = append(props, propEntry{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(merged)
 
 	// Emit nested messages for child structs first.
 	var nested []struct {
@@ -70,7 +58,7 @@ func (g *protoGen) emitMessage(name string, s *Config, depth int) {
 		schema  *Config
 	}
 	for _, p := range props {
-		childName := protoMessageName(p.name)
+		childName := toPascal(p.name)
 		if isScalarUnion(p.schema) {
 			continue
 		}
@@ -192,12 +180,12 @@ func (g *protoGen) protoType(contextName string, s *Config) protoTypeInfo {
 		return protoTypeInfo{typeName: inner.typeName, repeated: true}
 	case "object":
 		if hasProps(flat) {
-			return protoTypeInfo{typeName: protoMessageName(contextName), optional: true}
+			return protoTypeInfo{typeName: toPascal(contextName), optional: true}
 		}
 		if flat.AdditionalProperties != nil {
 			apFlat := FlattenComposite(flat.AdditionalProperties)
 			if hasProps(apFlat) {
-				return protoTypeInfo{typeName: protoMessageName(contextName) + "Entry", isMap: true}
+				return protoTypeInfo{typeName: toPascal(contextName) + "Entry", isMap: true}
 			}
 			inner := g.protoType(contextName+"Entry", flat.AdditionalProperties)
 			return protoTypeInfo{typeName: inner.typeName, isMap: true}
@@ -206,12 +194,12 @@ func (g *protoGen) protoType(contextName string, s *Config) protoTypeInfo {
 	}
 
 	if hasProps(flat) {
-		return protoTypeInfo{typeName: protoMessageName(contextName), optional: true}
+		return protoTypeInfo{typeName: toPascal(contextName), optional: true}
 	}
 	if flat.AdditionalProperties != nil {
 		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
-			return protoTypeInfo{typeName: protoMessageName(contextName) + "Entry", isMap: true}
+			return protoTypeInfo{typeName: toPascal(contextName) + "Entry", isMap: true}
 		}
 		inner := g.protoType(contextName+"Entry", flat.AdditionalProperties)
 		return protoTypeInfo{typeName: inner.typeName, isMap: true}
@@ -245,12 +233,13 @@ func (g *protoGen) protoConstraint(s *Config) string {
 			parts = append(parts, fmt.Sprintf("(buf.validate.field).string.pattern = %q", pat))
 		}
 		// Built-in validators.
-		switch flat.Format {
-		case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
+		k := formatKeyFor(flat.Format)
+		switch k {
+		case fmtIPv4Addr:
 			parts = append(parts, "(buf.validate.field).string.ipv4 = true")
-		case "ipv6", "ipv6-netmask":
+		case fmtIPv6Addr:
 			parts = append(parts, "(buf.validate.field).string.ipv6 = true")
-		case "idn-hostname", "domain-name":
+		case fmtHostname:
 			parts = append(parts, "(buf.validate.field).string.hostname = true")
 		}
 	}
@@ -281,62 +270,35 @@ func (g *protoGen) protoConstraint(s *Config) string {
 	return " [" + strings.Join(parts, ", ") + "]"
 }
 
+// formatToProtoType maps format strings to proto scalar types via the registry.
 func formatToProtoType(format string) string {
-	switch format {
-	case "integer", "integer-id", "sequence-id":
-		return "int64"
-	case "float", "number":
-		return "double"
-	default:
-		// All other format types are string-based in proto.
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
+	if t, ok := protoFormatTypes[k]; ok {
+		return t
+	}
+	return ""
 }
 
+var protoFormatTypes = map[formatKey]string{
+	fmtInteger:    "int64",
+	fmtSequenceID: "int64",
+	fmtFloat:      "double",
+}
+
+// formatToProtoPattern returns the validation pattern for a format via the registry.
 func formatToProtoPattern(format string) string {
-	switch format {
-	case "mac":
-		return `^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
-	case "interface-name", "swp-name", "bond-swp-name", "transceiver-name",
-		"bridge-name":
-		return `^(swp|eth|bond|br|lo|vlan|peerlink|erspan|mgmt)[a-zA-Z0-9_./-]*$`
-	case "vrf-name":
-		return `^[a-zA-Z][a-zA-Z0-9_-]{0,14}$`
-	case "vlan-range":
-		return `^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$`
-	case "ip-port-range":
-		return `^[0-9]+(-[0-9]+)?$`
-	case "route-distinguisher":
-		return `^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$`
-	case "route-target", "route-target-any":
-		return `^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$`
-	case "ext-community":
-		return `^(rt|soo|bandwidth)\s+\S+$`
-	case "community", "well-known-community", "large-community":
-		return `^(\d+:\d+|no-export|no-advertise|local-AS|no-peer|blackhole|graceful-shutdown|accept-own|internet)$`
-	case "es-identifier":
-		return `^([0-9A-Fa-f]{2}:){9}[0-9A-Fa-f]{2}$`
-	case "segment-identifier":
-		return `^\d+$`
-	case "user-name":
-		return `^[a-z_][a-z0-9_-]*[$]?$`
-	case "snmp-branch", "oid":
-		return `^\.?(\d+\.)*\d+$`
-	default:
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
-}
-
-func protoMessageName(s string) string {
-	parts := strings.FieldsFunc(s, func(c rune) bool {
-		return c == '-' || c == '_' || c == '.'
-	})
-	for i, p := range parts {
-		if len(p) > 0 {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
-		}
+	td := typedefFor(k)
+	if td == nil || td.pattern == "" {
+		return ""
 	}
-	return strings.Join(parts, "")
+	return td.pattern
 }
 
 func protoFieldName(s string) string {

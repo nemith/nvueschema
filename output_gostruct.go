@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/format"
 	"io"
-	"sort"
 	"strings"
 	"unicode"
 )
@@ -35,7 +34,7 @@ func WriteGoStructs(w io.Writer, schema *Config, info map[string]any) error {
 	// Emit type aliases for validated string types.
 	fmt.Fprintln(&buf, "// Validated string types for network configuration values.")
 	fmt.Fprintln(&buf, "// Use the Validate() methods or a JSON Schema validator to enforce patterns.")
-	for _, td := range goTypedefs {
+	for _, td := range typedefs {
 		fmt.Fprintf(&buf, "type %s = string\n", td.name)
 	}
 	fmt.Fprintln(&buf)
@@ -56,29 +55,6 @@ func WriteGoStructs(w io.Writer, schema *Config, info map[string]any) error {
 	return err
 }
 
-var goTypedefs = []struct {
-	name    string
-	pattern string
-}{
-	{"MacAddress", `^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`},
-	{"InterfaceName", `^(swp|eth|bond|br|lo|vlan|peerlink|erspan|mgmt)[a-zA-Z0-9_./-]*$`},
-	{"VrfName", `^[a-zA-Z][a-zA-Z0-9_-]{0,14}$`},
-	{"VlanRange", `^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$`},
-	{"PortRange", `^[0-9]+(-[0-9]+)?$`},
-	{"RouteDistinguisher", `^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$`},
-	{"RouteTarget", `^(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)$`},
-	{"ExtCommunity", `^(rt|soo|bandwidth)\s+\S+$`},
-	{"BgpCommunity", `^(\d+:\d+|no-export|no-advertise|local-AS|no-peer|blackhole|graceful-shutdown|accept-own|internet)$`},
-	{"EvpnRoute", `^(macip|imet|prefix)$`},
-	{"BgpRegex", ``},
-	{"AsnRange", `^(\d+|\d+-\d+)(,(\d+|\d+-\d+))*$`},
-	{"EsIdentifier", `^([0-9A-Fa-f]{2}:){9}[0-9A-Fa-f]{2}$`},
-	{"SegmentIdentifier", `^\d+$`},
-	{"Hostname", `^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`},
-	{"UserName", `^[a-z_][a-z0-9_-]*[$]?$`},
-	{"SnmpOid", `^\.?(\d+\.)*\d+$`},
-}
-
 type goGen struct {
 	w      io.Writer
 	models map[string]bool
@@ -91,18 +67,7 @@ func (g *goGen) emitStruct(name string, s *Config) {
 	g.models[name] = true
 
 	merged := FlattenComposite(s)
-
-	type propEntry struct {
-		name   string
-		schema *Config
-	}
-	var props []propEntry
-	if merged.Properties != nil {
-		for k, v := range merged.Properties {
-			props = append(props, propEntry{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(merged)
 
 	// Emit child structs first (depth-first).
 	for _, p := range props {
@@ -218,70 +183,50 @@ func (g *goGen) goType(contextName string, s *Config) string {
 	return "any"
 }
 
+// formatToGoType maps OpenAPI format strings to Go types via the format registry.
 func formatToGoType(format string) string {
-	switch format {
-	case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
-		return "netip.Addr"
-	case "ipv6", "ipv6-netmask":
-		return "netip.Addr"
-	case "dns-server-ip-address":
-		return "netip.Addr"
-	case "ipv4-prefix", "ipv4-sub-prefix", "ipv4-multicast-prefix",
-		"aggregate-ipv4-prefix":
-		return "netip.Prefix"
-	case "ipv6-prefix", "ipv6-sub-prefix", "aggregate-ipv6-prefix":
-		return "netip.Prefix"
-	case "mac":
-		return "MacAddress"
-	case "interface-name", "swp-name", "bond-swp-name", "transceiver-name",
-		"bridge-name":
-		return "InterfaceName"
-	case "vrf-name":
-		return "VrfName"
-	case "vlan-range":
-		return "VlanRange"
-	case "ip-port-range":
-		return "PortRange"
-	case "route-distinguisher":
-		return "RouteDistinguisher"
-	case "route-target", "route-target-any":
-		return "RouteTarget"
-	case "ext-community":
-		return "ExtCommunity"
-	case "community", "well-known-community", "large-community":
-		return "BgpCommunity"
-	case "evpn-route":
-		return "EvpnRoute"
-	case "bgp-regex":
-		return "BgpRegex"
-	case "asn-range":
-		return "AsnRange"
-	case "es-identifier":
-		return "EsIdentifier"
-	case "segment-identifier":
-		return "SegmentIdentifier"
-	case "idn-hostname", "domain-name":
-		return "Hostname"
-	case "user-name":
-		return "UserName"
-	case "snmp-branch", "oid":
-		return "SnmpOid"
-	case "secret-string", "key-string":
-		return "string"
-	case "integer", "integer-id", "sequence-id":
-		return "int64"
-	case "float", "number":
-		return "float64"
-	default:
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
+	if t, ok := goFormatTypes[k]; ok {
+		return t
+	}
+	return ""
+}
+
+var goFormatTypes = map[formatKey]string{
+	fmtIPv4Addr:          "netip.Addr",
+	fmtIPv6Addr:          "netip.Addr",
+	fmtIPAddr:            "netip.Addr",
+	fmtIPv4Prefix:        "netip.Prefix",
+	fmtIPv6Prefix:        "netip.Prefix",
+	fmtMAC:               "MacAddress",
+	fmtInterfaceName:     "InterfaceName",
+	fmtVrfName:           "VrfName",
+	fmtVlanRange:         "VlanRange",
+	fmtPortRange:         "PortRange",
+	fmtRouteDistinguisher: "RouteDistinguisher",
+	fmtRouteTarget:       "RouteTarget",
+	fmtExtCommunity:      "ExtCommunity",
+	fmtBgpCommunity:      "BgpCommunity",
+	fmtEvpnRoute:         "EvpnRoute",
+	fmtBgpRegex:          "BgpRegex",
+	fmtAsnRange:          "AsnRange",
+	fmtEsIdentifier:      "EsIdentifier",
+	fmtSegmentIdentifier: "SegmentIdentifier",
+	fmtHostname:          "Hostname",
+	fmtUserName:          "UserName",
+	fmtSnmpOid:           "SnmpOid",
+	fmtSecretString:      "string",
+	fmtInteger:           "int64",
+	fmtSequenceID:        "int64",
+	fmtFloat:             "float64",
 }
 
 // goPublic converts a kebab-case or snake_case name to a Go public identifier.
 func goPublic(s string) string {
-	parts := strings.FieldsFunc(s, func(c rune) bool {
-		return c == '-' || c == '_' || c == '.'
-	})
+	parts := splitIdentifier(s)
 	for i, p := range parts {
 		if len(p) == 0 {
 			continue

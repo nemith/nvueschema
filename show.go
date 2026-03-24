@@ -2,7 +2,7 @@ package nvueschema
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -22,18 +22,7 @@ func BuildShowTree(name string, s *Config) *Node {
 		Name: name,
 	}
 
-	type prop struct {
-		name   string
-		schema *Config
-	}
-	var props []prop
-
-	if flat.Properties != nil {
-		for k, v := range flat.Properties {
-			props = append(props, prop{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(flat)
 
 	// If the root itself is a map, add a [*] child and recurse into it.
 	if len(props) == 0 && flat.AdditionalProperties != nil {
@@ -156,10 +145,7 @@ func LeafTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
 
 // ScalarUnionTypeSegs returns type segments for a scalar union schema.
 func ScalarUnionTypeSegs(s *Config) (segs []TypeSegment, defaultVal string) {
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
+	variants := scalarUnionVariants(s)
 	for i, v := range variants {
 		if i > 0 {
 			segs = append(segs, TypeSegment{" | ", false})
@@ -205,7 +191,7 @@ func SubSchema(s *Config, path string) (*Config, error) {
 			for k := range flat.Properties {
 				avail = append(avail, k)
 			}
-			sort.Strings(avail)
+			slices.Sort(avail)
 			return nil, fmt.Errorf("path %q: %q not found (available: %s)",
 				path, part, strings.Join(avail, ", "))
 		}

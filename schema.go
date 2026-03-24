@@ -91,10 +91,7 @@ func FlattenComposite(s *Config) *Config {
 // isScalarUnion returns true if the schema is an anyOf/oneOf where every
 // branch is a scalar type (no properties, no additionalProperties).
 func isScalarUnion(s *Config) bool {
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
+	variants := scalarUnionVariants(s)
 	if len(variants) == 0 {
 		return false
 	}

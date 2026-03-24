@@ -3,7 +3,6 @@ package nvueschema
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -46,33 +45,20 @@ func WriteYANG(w io.Writer, schema *Config, info map[string]any) error {
 }
 
 func emitYANGTypedefs(w io.Writer) {
-	typedefs := []struct {
-		name, base, pattern, desc string
-	}{
-		{"mac-address", "string", `[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}`, "IEEE 802 MAC address"},
-		{"interface-name", "string", `(swp|eth|bond|br|lo|vlan|peerlink|erspan|mgmt)[a-zA-Z0-9_./-]*`, "Network interface name"},
-		{"vrf-name", "string", `[a-zA-Z][a-zA-Z0-9_-]{0,14}`, "VRF name"},
-		{"vlan-range", "string", `[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*`, "VLAN ID or range"},
-		{"port-range", "string", `[0-9]+(-[0-9]+)?`, "TCP/UDP port or range"},
-		{"route-distinguisher", "string", `(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)`, "BGP route distinguisher"},
-		{"route-target", "string", `(\d+\.\d+\.\d+\.\d+:\d+|\d+:\d+)`, "BGP route target"},
-		{"ext-community", "string", "", "BGP extended community"},
-		{"bgp-community", "string", `(\d+:\d+|no-export|no-advertise|local-AS|no-peer|blackhole|graceful-shutdown|accept-own|internet)`, "BGP community"},
-		{"evpn-route", "string", `(macip|imet|prefix)`, "EVPN route type"},
-		{"asn-range", "string", `(\d+|\d+-\d+)(,(\d+|\d+-\d+))*`, "ASN or range"},
-		{"es-identifier", "string", `([0-9A-Fa-f]{2}:){9}[0-9A-Fa-f]{2}`, "Ethernet segment identifier"},
-		{"segment-identifier", "string", `\d+`, "MPLS segment identifier"},
-		{"hostname", "string", `[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*`, "DNS hostname"},
-		{"user-name", "string", `[a-z_][a-z0-9_-]*[$]?`, "POSIX username"},
-		{"snmp-oid", "string", `\.?(\d+\.)*\d+`, "SNMP object identifier"},
-	}
-
 	for _, td := range typedefs {
-		fmt.Fprintf(w, "  typedef %s {\n", td.name)
-		fmt.Fprintf(w, "    type %s", td.base)
-		if td.pattern != "" {
+		yangName := yangTypedefName(td.key)
+		if yangName == "" {
+			continue
+		}
+		// Strip anchors for YANG patterns.
+		pattern := strings.TrimPrefix(td.pattern, "^")
+		pattern = strings.TrimSuffix(pattern, "$")
+
+		fmt.Fprintf(w, "  typedef %s {\n", yangName)
+		fmt.Fprintf(w, "    type string")
+		if pattern != "" {
 			fmt.Fprintf(w, " {\n")
-			fmt.Fprintf(w, "      pattern '%s';\n", td.pattern)
+			fmt.Fprintf(w, "      pattern '%s';\n", pattern)
 			fmt.Fprintf(w, "    }")
 		}
 		fmt.Fprintln(w, ";")
@@ -82,20 +68,49 @@ func emitYANGTypedefs(w io.Writer) {
 	}
 }
 
+// yangTypedefName maps a formatKey to its YANG typedef name.
+func yangTypedefName(k formatKey) string {
+	switch k {
+	case fmtMAC:
+		return "mac-address"
+	case fmtInterfaceName:
+		return "interface-name"
+	case fmtVrfName:
+		return "vrf-name"
+	case fmtVlanRange:
+		return "vlan-range"
+	case fmtPortRange:
+		return "port-range"
+	case fmtRouteDistinguisher:
+		return "route-distinguisher"
+	case fmtRouteTarget:
+		return "route-target"
+	case fmtExtCommunity:
+		return "ext-community"
+	case fmtBgpCommunity:
+		return "bgp-community"
+	case fmtEvpnRoute:
+		return "evpn-route"
+	case fmtAsnRange:
+		return "asn-range"
+	case fmtEsIdentifier:
+		return "es-identifier"
+	case fmtSegmentIdentifier:
+		return "segment-identifier"
+	case fmtHostname:
+		return "hostname"
+	case fmtUserName:
+		return "user-name"
+	case fmtSnmpOid:
+		return "snmp-oid"
+	default:
+		return ""
+	}
+}
+
 func emitYANGContainer(w io.Writer, name string, orig *Config, flat *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
-
-	type prop struct {
-		name   string
-		schema *Config
-	}
-	var props []prop
-	if flat.Properties != nil {
-		for k, v := range flat.Properties {
-			props = append(props, prop{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(flat)
 
 	// Skip empty containers.
 	if len(props) == 0 {
@@ -154,18 +169,7 @@ func emitYANGNode(w io.Writer, name string, s *Config, depth int) {
 
 func emitYANGList(w io.Writer, name string, orig *Config, flat *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
-
-	type prop struct {
-		name   string
-		schema *Config
-	}
-	var props []prop
-	if flat.Properties != nil {
-		for k, v := range flat.Properties {
-			props = append(props, prop{k, v})
-		}
-		sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
-	}
+	props := sortedProperties(flat)
 
 	ref := sourceRefFor(orig)
 	if ref != "" {
@@ -217,10 +221,7 @@ func emitYANGLeafList(w io.Writer, name string, s *Config, depth int) {
 
 func emitYANGUnionLeaf(w io.Writer, name string, s *Config, depth int) {
 	indent := strings.Repeat("  ", depth)
-	variants := s.AnyOf
-	if len(variants) == 0 {
-		variants = s.OneOf
-	}
+	variants := scalarUnionVariants(s)
 
 	fmt.Fprintf(w, "%sleaf %s {\n", indent, yangSafe(name))
 	if len(variants) == 1 {
@@ -333,65 +334,46 @@ func toYANGType(s *Config) string {
 	}
 }
 
+// formatToYANGType maps OpenAPI format strings to YANG types via the registry.
 func formatToYANGType(format string) string {
-	switch format {
-	case "ipv4", "ipv4-unicast", "ipv4-multicast", "ipv4-netmask":
-		return "inet:ipv4-address"
-	case "ipv6", "ipv6-netmask":
-		return "inet:ipv6-address"
-	case "ipv4-prefix", "ipv4-sub-prefix", "ipv4-multicast-prefix",
-		"aggregate-ipv4-prefix":
-		return "inet:ipv4-prefix"
-	case "ipv6-prefix", "ipv6-sub-prefix", "aggregate-ipv6-prefix":
-		return "inet:ipv6-prefix"
-	case "dns-server-ip-address":
-		return "inet:ip-address"
-	case "mac":
-		return "mac-address"
-	case "interface-name", "swp-name", "bond-swp-name", "transceiver-name",
-		"bridge-name":
-		return "interface-name"
-	case "vrf-name":
-		return "vrf-name"
-	case "vlan-range":
-		return "vlan-range"
-	case "ip-port-range":
-		return "port-range"
-	case "route-distinguisher":
-		return "route-distinguisher"
-	case "route-target", "route-target-any":
-		return "route-target"
-	case "ext-community":
-		return "ext-community"
-	case "community", "well-known-community", "large-community":
-		return "bgp-community"
-	case "evpn-route":
-		return "evpn-route"
-	case "asn-range":
-		return "asn-range"
-	case "es-identifier":
-		return "es-identifier"
-	case "segment-identifier":
-		return "segment-identifier"
-	case "bgp-regex":
-		return "string"
-	case "idn-hostname", "domain-name":
-		return "hostname"
-	case "user-name":
-		return "user-name"
-	case "snmp-branch", "oid":
-		return "snmp-oid"
-	case "secret-string", "key-string":
-		return "string"
-	case "integer", "integer-id", "sequence-id":
-		return "int64"
-	case "float", "number":
-		return "decimal64"
-	case "date-time":
-		return "yang:date-and-time"
-	default:
+	k := formatKeyFor(format)
+	if k == 0 {
 		return ""
 	}
+	if t, ok := yangFormatTypes[k]; ok {
+		return t
+	}
+	return ""
+}
+
+var yangFormatTypes = map[formatKey]string{
+	fmtIPv4Addr:          "inet:ipv4-address",
+	fmtIPv6Addr:          "inet:ipv6-address",
+	fmtIPAddr:            "inet:ip-address",
+	fmtIPv4Prefix:        "inet:ipv4-prefix",
+	fmtIPv6Prefix:        "inet:ipv6-prefix",
+	fmtMAC:               "mac-address",
+	fmtInterfaceName:     "interface-name",
+	fmtVrfName:           "vrf-name",
+	fmtVlanRange:         "vlan-range",
+	fmtPortRange:         "port-range",
+	fmtRouteDistinguisher: "route-distinguisher",
+	fmtRouteTarget:       "route-target",
+	fmtExtCommunity:      "ext-community",
+	fmtBgpCommunity:      "bgp-community",
+	fmtEvpnRoute:         "evpn-route",
+	fmtAsnRange:          "asn-range",
+	fmtEsIdentifier:      "es-identifier",
+	fmtSegmentIdentifier: "segment-identifier",
+	fmtBgpRegex:          "string",
+	fmtHostname:          "hostname",
+	fmtUserName:          "user-name",
+	fmtSnmpOid:           "snmp-oid",
+	fmtSecretString:      "string",
+	fmtInteger:           "int64",
+	fmtSequenceID:        "int64",
+	fmtFloat:             "decimal64",
+	fmtDateTime:          "yang:date-and-time",
 }
 
 func yangSafe(s string) string {
