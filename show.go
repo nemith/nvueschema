@@ -40,6 +40,7 @@ func BuildShowTree(name string, s *Config) *Node {
 		apFlat := FlattenComposite(flat.AdditionalProperties)
 		if hasProps(apFlat) {
 			starNode := BuildShowTree("[*]", flat.AdditionalProperties)
+			starNode.TypeSegs = []TypeSegment{{Text: "string", Literal: false}}
 			node.Children = append(node.Children, starNode)
 			return node
 		}
@@ -58,6 +59,7 @@ func BuildShowTree(name string, s *Config) *Node {
 					Desc:     shortDesc(childFlat.Description),
 				}
 				starNode := BuildShowTree("[*]", childFlat.AdditionalProperties)
+				starNode.TypeSegs = []TypeSegment{{Text: "string", Literal: false}}
 				dictNode.Children = append(dictNode.Children, starNode)
 				node.Children = append(node.Children, dictNode)
 				continue

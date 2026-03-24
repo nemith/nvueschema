@@ -64,6 +64,7 @@ func main() {
 	root.AddCommand(newValidateCmd())
 	root.AddCommand(newDiffCmd())
 	root.AddCommand(newShowCmd())
+	root.AddCommand(newBrowseCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
