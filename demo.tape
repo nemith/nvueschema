@@ -33,6 +33,39 @@ Type "nvueschema diff 5.15 5.16 --affected testdata/config.yaml"
 Enter
 Sleep 4s
 
+# Browse interactive TUI
+Ctrl+L
+Type "nvueschema browse 5.16 --path interface"
+Enter
+Sleep 2s
+Down
+Down
+Down
+Sleep 1s
+Enter
+Sleep 1s
+Down
+Down
+Sleep 1s
+Enter
+Sleep 2s
+
+# Filter within the TUI
+Type "/"
+Sleep 500ms
+Type "vrrp"
+Sleep 1s
+Enter
+Sleep 2s
+Type "n"
+Sleep 1s
+Type "n"
+Sleep 1s
+Escape
+Sleep 1s
+Type "q"
+Sleep 1s
+
 # Generate YANG
 Ctrl+L
 Type "nvueschema gen -f yang 5.16 | head -20"
