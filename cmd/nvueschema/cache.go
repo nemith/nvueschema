@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/nemith/dothome"
-	"github.com/nemith/nvueschema"
+	"nemith.io/nvueschema"
 )
 
 var logger = log.NewWithOptions(os.Stderr, log.Options{

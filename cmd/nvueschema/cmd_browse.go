@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nemith/nvueschema"
+	"nemith.io/nvueschema"
 	"github.com/spf13/cobra"
 )
 

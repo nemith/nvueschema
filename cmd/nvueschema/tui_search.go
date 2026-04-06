@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/nemith/nvueschema"
+	"nemith.io/nvueschema"
 )
 
 // subtreeMatches returns true if any descendant of n has a path or name

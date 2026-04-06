@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/jwalton/gchalk"
-	"github.com/nemith/nvueschema"
+	"nemith.io/nvueschema"
 )
 
 // renderTypeSegs formats type segments with coloring into a strings.Builder.

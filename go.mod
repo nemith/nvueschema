@@ -1,4 +1,4 @@
-module github.com/nemith/nvueschema
+module nemith.io/nvueschema
 
 go 1.26.1
 

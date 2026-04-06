@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nemith/nvueschema"
+	"nemith.io/nvueschema"
 )
 
 // flatRow is a single visible row in the flattened tree.

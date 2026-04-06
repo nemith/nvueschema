@@ -8,15 +8,15 @@ import (
 	"strings"
 
 	"github.com/jwalton/gchalk"
-	nvue "github.com/nemith/nvueschema"
 	"github.com/spf13/cobra"
+	"nemith.io/nvueschema"
 )
 
 func newDiffCmd() *cobra.Command {
 	var (
-		noCache    bool
-		paths      []string
-		outputMode string
+		noCache      bool
+		paths        []string
+		outputMode   string
 		affectedFile string
 	)
 
@@ -58,7 +58,7 @@ Examples:
 				return fmt.Errorf("extracting new config: %w", err)
 			}
 
-			diff := nvue.DiffSchemas(oldSchema, newSchema, "")
+			diff := nvueschema.DiffSchemas(oldSchema, newSchema, "")
 
 			if len(paths) > 0 {
 				diff = diff.Filter(paths)
@@ -69,7 +69,7 @@ Examples:
 				if err != nil {
 					return fmt.Errorf("loading config: %w", err)
 				}
-				configPaths := nvue.ConfigLeafPaths(config, oldSchema, newSchema)
+				configPaths := nvueschema.ConfigLeafPaths(config, oldSchema, newSchema)
 				diff = diff.FilterAffected(configPaths)
 			}
 
@@ -119,11 +119,11 @@ Examples:
 // diffNode is a tree node for rendering the diff hierarchically.
 type diffNode struct {
 	name     string
-	changes  []nvue.Change
+	changes  []nvueschema.Change
 	children []*diffNode
 }
 
-func buildDiffTree(changes []nvue.Change) *diffNode {
+func buildDiffTree(changes []nvueschema.Change) *diffNode {
 	root := &diffNode{name: "(root)"}
 	for _, c := range changes {
 		parts := strings.Split(c.Path, ".")
@@ -171,7 +171,7 @@ func printDiffTree(n *diffNode, prefix string, isLast bool, isRoot bool) {
 	}
 
 	// For add/remove nodes with a single change, render inline.
-	var inlineChange *nvue.Change
+	var inlineChange *nvueschema.Change
 	if !isRoot && len(effective.changes) == 1 {
 		c := &effective.changes[0]
 		if c.Kind == "added" || c.Kind == "removed" {
@@ -260,7 +260,7 @@ func uniformKind(n *diffNode) string {
 	return ""
 }
 
-func printDiffFlat(changes []nvue.Change) {
+func printDiffFlat(changes []nvueschema.Change) {
 	for _, c := range changes {
 		var line strings.Builder
 
