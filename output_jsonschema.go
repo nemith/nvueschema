@@ -111,7 +111,7 @@ func (s *Config) ToJSONSchema() map[string]any {
 		out["maxLength"] = *flat.MaxLength
 	}
 	if flat.Pattern != "" {
-		out["pattern"] = flat.Pattern
+		setJSONSchemaPattern(out, flat.Pattern)
 	}
 	if flat.Format != "" {
 		out["format"] = flat.Format
@@ -190,7 +190,7 @@ func scalarUnionToJSONSchema(s *Config) map[string]any {
 			branch["maxLength"] = *v.MaxLength
 		}
 		if v.Pattern != "" {
-			branch["pattern"] = v.Pattern
+			setJSONSchemaPattern(branch, v.Pattern)
 		}
 		schemas = append(schemas, branch)
 	}
@@ -212,6 +212,18 @@ func scalarUnionToJSONSchema(s *Config) map[string]any {
 	}
 
 	return out
+}
+
+// setJSONSchemaPattern preserves NVUE's reserved "none" exclusion without
+// requiring regex lookahead, which the Go validation engine cannot compile.
+// Keep the remaining pattern constraint; other patterns are emitted verbatim.
+func setJSONSchemaPattern(out map[string]any, pattern string) {
+	if pattern == `^(?!none$).*$` {
+		out["pattern"] = `^.*$`
+		out["not"] = map[string]any{"const": "none"}
+		return
+	}
+	out["pattern"] = pattern
 }
 
 // formatToJSONSchemaDef returns the $defs key for a format, or "" if not mapped.
