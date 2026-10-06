@@ -2,7 +2,6 @@ package nvueschema
 
 import (
 	"bytes"
-	"encoding/json"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -11,8 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/google/jsonschema-go/jsonschema"
 )
 
 func TestCompositeEnumValidation(t *testing.T) {
@@ -115,7 +112,7 @@ func TestCompositeEnumValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			schema := compileTestSchema(t, tt.schema)
+			schema := compileJSONSchema(t, tt.schema)
 			for _, value := range tt.valid {
 				if err := schema.Validate(value); err != nil {
 					t.Errorf("Validate(%#v) = %v, want valid", value, err)
@@ -146,7 +143,7 @@ func TestCompositeEnumOnlyProperty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema := compileTestSchema(t, config)
+	schema := compileJSONSchema(t, config)
 	if err := schema.Validate(map[string]any{"mode": 1}); err != nil {
 		t.Errorf("enum-only property was pruned: %v", err)
 	}
@@ -164,7 +161,7 @@ func TestCompositeEnumOverlappingAlternatives(t *testing.T) {
 	if !ok || !slices.Equal(enum, []any{"enabled", "shared", "disabled"}) {
 		t.Fatalf("combined enum = %#v, want unique values from both alternatives", enum)
 	}
-	resolved := compileTestSchema(t, config)
+	resolved := compileJSONSchema(t, config)
 	for _, value := range []string{"enabled", "shared", "disabled"} {
 		if err := resolved.Validate(value); err != nil {
 			t.Errorf("Validate(%q) = %v", value, err)
@@ -211,21 +208,4 @@ func configure(c *NvueConfig) {
 	if _, err := checker.Check("config", fset, []*ast.File{file}, nil); err != nil {
 		t.Fatalf("generated format fields cannot represent nullable typed values: %v", err)
 	}
-}
-
-func compileTestSchema(t *testing.T, config *Config) *jsonschema.Resolved {
-	t.Helper()
-	data, err := json.Marshal(config.JSONSchemaDoc())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema jsonschema.Schema
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := schema.Resolve(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resolved
 }
