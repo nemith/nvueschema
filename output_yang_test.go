@@ -184,6 +184,78 @@ func TestYANGIntegerRanges(t *testing.T) {
 
 type yangValues struct{ Good, Bad []string }
 
+func TestYANGAllOfScalarUnions(t *testing.T) {
+	for _, composition := range []string{"anyOf", "oneOf"} {
+		t.Run(composition, func(t *testing.T) {
+			// NVUE 5.1 wraps the IPv4-or-auto definition for the VXLAN
+			// source address in allOf to attach a description and default.
+			variants := []*Config{
+				{Type: "string", Format: "ipv4", Nullable: true},
+				{Type: "string", Enum: []any{"auto", nil}, Nullable: true},
+			}
+			union := &Config{}
+			if composition == "anyOf" {
+				union.AnyOf = variants
+			} else {
+				union.OneOf = variants
+			}
+			address := &Config{
+				Type: "string", Nullable: true, Default: "auto",
+				Description: "VXLAN source address",
+				AllOf:       []*Config{union},
+			}
+			schema := &Config{Properties: map[string]*Config{
+				"address": address,
+				"nested":  {AllOf: []*Config{address}},
+				"choice":  {AnyOf: []*Config{address, {Type: "string", Enum: []any{"none"}}}},
+			}}
+			var buf bytes.Buffer
+			if err := WriteYANG(&buf, schema, nil); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"type union {", "type inet:ipv4-address;", `enum "auto";`, `default "auto";`, `"VXLAN source address";`} {
+				if !strings.Contains(buf.String(), want) {
+					t.Errorf("missing %s", want)
+				}
+			}
+			for _, metadata := range []string{`default "auto";`, `"VXLAN source address";`} {
+				if got := strings.Count(buf.String(), metadata); got != 2 {
+					t.Errorf("%s appears %d times, want 2 (address and nested)", metadata, got)
+				}
+			}
+			t.Run("validate", func(t *testing.T) {
+				checkYANGValues(t, buf.Bytes(), map[string]yangValues{
+					"address": {Good: []string{"192.0.2.1", "auto"}, Bad: []string{"999.0.0.1", "2001:db8::1", "manual", "none"}},
+					"nested":  {Good: []string{"192.0.2.1", "auto"}, Bad: []string{"999.0.0.1", "manual"}},
+					"choice":  {Good: []string{"192.0.2.1", "auto", "none"}, Bad: []string{"999.0.0.1", "manual"}},
+				})
+			})
+		})
+	}
+}
+
+func TestYANGConstrainedAllOfUnion(t *testing.T) {
+	value := &Config{
+		Type: "integer", Minimum: new(10.0),
+		AllOf: []*Config{{AnyOf: []*Config{
+			{Type: "integer", Minimum: new(0.0), Maximum: new(20.0)},
+			{Type: "string", Enum: []any{"auto"}},
+		}}},
+	}
+	var buf bytes.Buffer
+	if err := WriteYANG(&buf, &Config{Properties: map[string]*Config{"value": value}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "type union {") || !strings.Contains(buf.String(), `range "10..20";`) {
+		t.Fatal("discarded the allOf wrapper's type or minimum constraint")
+	}
+	t.Run("validate", func(t *testing.T) {
+		checkYANGValues(t, buf.Bytes(), map[string]yangValues{
+			"value": {Good: []string{"10", "20"}, Bad: []string{"0", "9", "21", "auto"}},
+		})
+	})
+}
+
 func TestYANGNullAlternatives(t *testing.T) {
 	schema := &Config{Properties: map[string]*Config{
 		"mac":        {AnyOf: []*Config{{Type: "string", Format: "mac"}, {Type: "string", Nullable: true, Enum: []any{nil}}}},

@@ -171,8 +171,8 @@ func emitYANGNode(w io.Writer, name string, s *Config, depth int) error {
 		return nil
 	}
 	// Scalar union (anyOf/oneOf of primitives) -> YANG union leaf.
-	if isScalarUnion(s) {
-		return emitYANGUnionLeaf(w, name, s, depth)
+	if variants := yangScalarUnionVariants(s); len(variants) > 0 {
+		return emitYANGUnionLeaf(w, name, s, variants, depth)
 	}
 
 	flat := FlattenComposite(s)
@@ -260,16 +260,58 @@ func emitYANGLeafList(w io.Writer, name string, s *Config, depth int) error {
 	return nil
 }
 
-func emitYANGUnionLeaf(w io.Writer, name string, s *Config, depth int) error {
+// yangScalarUnionVariants follows unions through single-reference allOf
+// wrappers. Only unwrap metadata and compatible type annotations: additional
+// constraints on an allOf must not be discarded as though it were an anyOf.
+func yangScalarUnionVariants(s *Config) []*Config {
+	variants := s.AnyOf
+	if len(variants) == 0 {
+		variants = s.OneOf
+	}
+	if len(variants) == 0 && len(s.AllOf) == 1 {
+		if s.Properties != nil || s.AdditionalProperties != nil || s.Items != nil ||
+			s.Format != "" || s.Pattern != "" || len(s.Enum) > 0 ||
+			s.Minimum != nil || s.Maximum != nil || s.MinLength != nil || s.MaxLength != nil {
+			return nil
+		}
+		variants = yangScalarUnionVariants(s.AllOf[0])
+		for _, variant := range variants {
+			if s.Type != "" && variant.Type != s.Type {
+				return nil
+			}
+		}
+		return variants
+	}
+	var expanded []*Config
+	for _, variant := range variants {
+		if inner := yangScalarUnionVariants(variant); len(inner) > 0 {
+			expanded = append(expanded, inner...)
+			continue
+		}
+		if variant.Properties != nil || variant.AdditionalProperties != nil ||
+			len(variant.AllOf) > 0 || len(variant.AnyOf) > 0 || len(variant.OneOf) > 0 {
+			return nil
+		}
+		expanded = append(expanded, variant)
+	}
+	return expanded
+}
+
+func emitYANGUnionLeaf(w io.Writer, name string, s *Config, alternatives []*Config, depth int) error {
 	indent := strings.Repeat("  ", depth)
 	var variants []*Config
-	for _, variant := range scalarUnionVariants(s) {
+	for _, variant := range alternatives {
 		if !yangNullOnly(variant) {
 			variants = append(variants, variant)
 		}
 	}
 	if len(variants) == 0 {
 		return nil
+	}
+	if len(s.AllOf) > 0 {
+		// Preserve metadata inherited through the reference wrapper after
+		// extracting its union alternatives, which flattening would discard.
+		s = FlattenComposite(s)
 	}
 
 	fmt.Fprintf(w, "%sleaf %s {\n", indent, yangSafe(name))
