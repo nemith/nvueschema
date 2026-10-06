@@ -90,9 +90,9 @@ also compile Protobuf when `protoc` is on `PATH`, and validate YANG/Pydantic
 when their Python packages are available. Missing external tools are reported
 as skipped tests.
 
-The [Tests workflow](.github/workflows/test.yml) runs on pushes, pull requests,
-and manual dispatch. It installs the external validators for the unit tests and
-runs a separate matrix job for every release in `testdata/schema-versions.json`.
+The [Tests workflow](.github/workflows/test.yml) runs on pull requests, pushes to
+`main`, and manual dispatch. It installs the external validators for the unit
+tests and runs a separate matrix job for every release in `testdata/schema-versions.json`.
 Each release job downloads its schema with the NVUE fetcher, verifies its
 checksum, checks every generator, and uploads its test log and coverage profile,
 including when tests fail.
