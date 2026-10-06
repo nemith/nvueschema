@@ -75,6 +75,14 @@ for _, c := range diff.Changes {
 doc := cfg.JSONSchemaDoc()
 ```
 
+`JSONSchemaDoc` inherits enum constraints from `allOf`. For `anyOf` and
+`oneOf`, it combines enum values only when every alternative is enum-constrained.
+Unrestricted alternatives retain their value range and format types.
+
+For example, the 5.18 schema accepts `router.bgp.state: enabled` or `disabled`,
+but rejects legacy `on` and `off` values. Library consumers must use values
+allowed by the generated schema.
+
 ## Tests
 
 Run `go test ./...` for the Go regression tests. Generator integration tests

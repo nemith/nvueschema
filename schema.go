@@ -3,6 +3,8 @@ package nvueschema
 import (
 	"fmt"
 	"maps"
+	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -12,10 +14,8 @@ type TypeSegment struct {
 	Literal bool // true for enum/literal values, false for type names
 }
 
-// FlattenComposite merges allOf, anyOf, and oneOf into a single Schema by
-// combining all their properties, additionalProperties, etc. In the NVUE
-// spec these composition keywords are used to express "this object has all
-// of these property groups", so merging is the right interpretation.
+// FlattenComposite merges NVUE composition groups into one schema, combining
+// properties and leaf metadata. Enum constraints depend on the composition kind.
 func FlattenComposite(s *Config) *Config {
 	if s == nil {
 		return &Config{}
@@ -41,7 +41,9 @@ func FlattenComposite(s *Config) *Config {
 
 	// Merge all composition variants — they all contribute properties
 	// and leaf-level fields when not already set on the top-level schema.
-	for _, group := range [][]*Config{s.AllOf, s.AnyOf, s.OneOf} {
+	for groupIndex, group := range [3][]*Config{s.AllOf, s.AnyOf, s.OneOf} {
+		var enum []any
+		allEnums := true
 		for _, sub := range group {
 			flat := FlattenComposite(sub)
 			if flat.Description != "" && merged.Description == "" {
@@ -79,6 +81,26 @@ func FlattenComposite(s *Config) *Config {
 			if flat.AdditionalProperties != nil {
 				merged.AdditionalProperties = flat.AdditionalProperties
 			}
+			if len(merged.Enum) > 0 {
+				continue
+			}
+			if groupIndex == 0 {
+				merged.Enum = flat.Enum
+			} else if allEnums {
+				switch {
+				case len(flat.Enum) == 0:
+					allEnums = false
+					enum = nil
+				case len(enum) == 0:
+					// Appending must not overwrite a branch's shared backing array.
+					enum = slices.Clip(flat.Enum)
+				default:
+					enum = compositeEnum(enum, flat.Enum)
+				}
+			}
+		}
+		if groupIndex > 0 && allEnums && len(merged.Enum) == 0 {
+			merged.Enum = enum
 		}
 	}
 
@@ -86,6 +108,17 @@ func FlattenComposite(s *Config) *Config {
 	maps.Copy(merged.Properties, s.Properties)
 	merged.Required = append(merged.Required, s.Required...)
 	return merged
+}
+
+func compositeEnum(values, branch []any) []any {
+	for _, value := range branch {
+		if !slices.ContainsFunc(values, func(candidate any) bool {
+			return reflect.DeepEqual(candidate, value)
+		}) {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 // isScalarUnion returns true if the schema is an anyOf/oneOf where every
