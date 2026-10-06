@@ -21,7 +21,7 @@ Each item gets a separate Jujutsu change, with regression tests committed alongs
   The complete 5.16 schema now passes statement parsing, exposing the separate
   validation failures below.
 
-Full-schema validation with pyang 2.7.1 still reports 566 errors (many instances
+Initial full-schema validation with pyang 2.7.1 reported 566 errors (many instances
 of the same underlying defects) and one unused-import warning:
 
 - [x] Fix YANG default serialization. Preserve string and numeric values without
@@ -46,9 +46,13 @@ of the same underlying defects) and one unused-import warning:
 - [x] Add a repeatable 5.0–5.18 schema matrix covering parsing and every output
   format, including Protobuf validation annotations. Pin downloaded schemas by
   checksum and require all external validators when the matrix is enabled.
-  All 19 versions pass the non-YANG checks; YANG reports 207–586 errors per
-  version from the defects above. OpenAPI coverage checks the configuration
+  All 19 versions now pass every output format, including YANG.
+  OpenAPI coverage checks the configuration
   component and references, not the complete document.
-- [ ] Run the version matrix in CI. Ordinary unit tests still allow optional
-  integrations to skip, and there is no checked-in workflow enforcing the full
-  matrix. Add focused source fixtures as the YANG defects above are fixed.
+- [x] Run the version matrix in CI. GitHub Actions reads the release manifest,
+  installs all validators, and runs each release in a separate job. Failures
+  remain visible without cancelling the other releases.
+- [x] Preserve scalar unions inside single-reference `allOf` wrappers in YANG.
+  Validate IPv4-or-`auto` values and defaults with pyang, including nested
+  wrappers, and retain wrapper constraints and inherited metadata.
+- [ ] Add focused source fixtures as the YANG defects above are fixed.
