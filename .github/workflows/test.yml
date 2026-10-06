@@ -1,0 +1,117 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  matrix:
+    name: Load NVUE versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      versions: ${{ steps.manifest.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read version manifest
+        id: manifest
+        run: |
+          echo "versions=$(jq -c '{include: .}' testdata/schema-versions.json)" >> "$GITHUB_OUTPUT"
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler
+          python -m pip install pyang 'pydantic>=2,<3'
+          echo "NVUESCHEMA_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - name: Run unit and generator regression tests
+        run: go test -race -count=1 ./...
+
+  schema:
+    name: NVUE ${{ matrix.version }}
+    needs: matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.versions) }}
+    env:
+      NVUE_VERSION: ${{ matrix.version }}
+      NVUE_SHA256: ${{ matrix.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set test paths
+        run: |
+          {
+            echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache"
+            echo "NVUESCHEMA_SPEC_DIR=$RUNNER_TEMP/specs"
+            echo "NVUESCHEMA_PROTO_INCLUDE=$RUNNER_TEMP/proto"
+          } >> "$GITHUB_ENV"
+      - name: Cache NVUE schemas
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.XDG_CACHE_HOME }}/nvueschema
+          key: nvue-schema-v1-${{ runner.os }}-${{ matrix.version }}-${{ matrix.sha256 }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: '1.73.0'
+          setup_only: true
+          pr_comment: false
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler
+          python -m pip install pyang 'pydantic>=2,<3'
+          echo "NVUESCHEMA_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+          buf export buf.build/bufbuild/protovalidate --output "$NVUESCHEMA_PROTO_INCLUDE"
+      - name: Download and verify schema
+        run: |
+          mkdir -p "$NVUESCHEMA_SPEC_DIR"
+          schema="$NVUESCHEMA_SPEC_DIR/openapi-$NVUE_VERSION.json"
+          go run ./cmd/nvueschema fetch "$NVUE_VERSION" --output "$schema"
+          printf '%s  %s\n' "$NVUE_SHA256" "$schema" | sha256sum --check
+      - name: Test all generators
+        run: |
+          version_pattern="${NVUE_VERSION//./[.]}"
+          go test -v -count=1 -coverpkg=./... -coverprofile="$RUNNER_TEMP/coverage.out" \
+            ./cmd/nvueschema -run "^TestSchemaVersions$/^${version_pattern}$" \
+            | tee "$RUNNER_TEMP/test.log"
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: nvue-${{ matrix.version }}-test-results
+          path: |
+            ${{ runner.temp }}/test.log
+            ${{ runner.temp }}/coverage.out
+          if-no-files-found: ignore

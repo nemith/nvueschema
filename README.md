@@ -90,6 +90,19 @@ also compile Protobuf when `protoc` is on `PATH`, and validate YANG/Pydantic
 when their Python packages are available. Missing external tools are reported
 as skipped tests.
 
+The [Tests workflow](.github/workflows/test.yml) runs on pushes, pull requests,
+and manual dispatch. It installs the external validators for the unit tests and
+runs a separate matrix job for every release in `testdata/schema-versions.json`.
+Each release job downloads its schema with the NVUE fetcher, verifies its
+checksum, checks every generator, and uploads its test log and coverage profile,
+including when tests fail.
+Matrix failures do not cancel the other releases.
+
+CI sets `XDG_CACHE_HOME` to `$RUNNER_TEMP/cache` and uses GitHub Actions caching
+for its `nvueschema` subdirectory, including `Last-Modified` metadata. Cache keys
+include the release and manifest checksum. The fetcher still revalidates cached
+schemas, and every run checks the downloaded or cached bytes against the manifest.
+
 To run the Python integration tests in an isolated environment:
 
 ```sh
@@ -139,6 +152,6 @@ and runs pyang on YANG. JSON Schema, the OpenAPI configuration component, and
 Pydantic also check valid and invalid MTUs. The OpenAPI check validates the
 configuration schema and its references, not the entire OpenAPI document.
 
-The full matrix currently fails on YANG for all 19 releases; the remaining
-generator defects are tracked in [TODO.md](TODO.md). These failures are reported
-normally, not skipped or marked as expected successes.
+Failures in any generator, including YANG, are reported normally, not skipped
+or marked as expected successes. Generator follow-ups are tracked in
+[TODO.md](TODO.md).
