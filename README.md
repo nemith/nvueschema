@@ -222,6 +222,20 @@ versions and the exact `full` dependency pin in its build checkout; no version
 edits or lockfile updates need to be committed for a release. The versions in the
 checked-in package metadata are defaults for local development builds.
 
+The workflow also runs a pinned `gorelease` check on PRs, pushes, and releases.
+Both PyPI and TestPyPI uploads require it to pass. It compares the exported Go
+API against the latest published stable Go module version below the proposed
+release; the first release is checked without a baseline. Untagged CI runs
+compare against the latest stable version and report a suggested next version.
+The report appears in the workflow summary, including when the check fails.
+
+Since the release tag already exists when CI runs, the check uses an unpublished
+`-0.gorelease` prerelease with the same major/minor/patch numbers. This avoids
+`gorelease` rejecting an already-published tag; it does not change the versions
+published to PyPI. Under Go's pre-1.0 rules, incompatible API changes are reported
+but do not themselves fail the check for `v0.x`. CLI flags, JSON output, and
+validation behavior remain covered by tests rather than this API comparison.
+
 Configure Trusted Publishing for
 **both** `nvueschema` and `nvueschema-binary` on PyPI/TestPyPI using repository
 `nemith/nvueschema` and workflow `python.yml`, with these GitHub environments:
