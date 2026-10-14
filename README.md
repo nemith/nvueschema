@@ -9,8 +9,29 @@ This tool exists because the only schema Nvidia provides is a full OpenAPI spec 
 ## Install
 
 ```
-go install github.com/nemith/nvueschema/cmd/nvueschema@latest
+go install nemith.io/nvueschema/cmd/nvueschema@latest
 ```
+
+After the packaging changes are merged and the first stable release is published,
+install the CLI through Homebrew on macOS or Linux:
+
+```sh
+brew install nemith/tap/nvueschema
+```
+
+With Nix flakes enabled, run or install a specific release directly from GitHub:
+
+```sh
+nix run github:nemith/nvueschema/v0.1.0 -- --help
+nix profile add github:nemith/nvueschema/v0.1.0
+```
+
+For local development, `nix build path:.` and `nix run path:. -- --help` include
+uncommitted files in the current checkout. Nix builds the CLI from source with
+pinned nixpkgs and Go dependencies
+on Linux and macOS (amd64 and arm64). Its version identifies the Git revision;
+tagged flake URLs pin that revision without a separate version bump. Neither
+Homebrew nor the Nix package installs the Python API.
 
 ## Usage
 
@@ -275,3 +296,30 @@ become Python versions `0.2.0a1`, `0.2.0b1`, and `0.2.0rc1`. Publishing a GitHub
 prerelease also publishes to PyPI, so use a prerelease tag rather than relying
 only on GitHub's prerelease checkbox. Draft releases, ordinary pushes, and PRs
 do not publish. Package versions are independent of NVUE schema versions.
+
+### Homebrew and Nix maintenance
+
+The release workflow waits for Homebrew and Nix builds/tests on macOS and Linux
+before publishing. After a stable release, it updates
+[`nemith/homebrew-tap`](https://github.com/nemith/homebrew-tap) with a source
+formula pinned to the release archive's SHA-256. Prereleases are skipped, and
+releasing an older maintenance version will not downgrade the tap.
+
+Tap updates use the `HOMEBREW_TAP_DEPLOY_KEY` Actions secret: an SSH private key
+whose public key is registered as a write-enabled deploy key on
+`nemith/homebrew-tap`. The key grants access only to that repository. To rotate
+it, register a replacement deploy key, update the Actions secret, then remove
+the old deploy key. No PyPI credentials are involved.
+
+`packaging/homebrew/nvueschema.rb.in` is the formula template;
+`packaging/homebrew/render.py` sets its version, source URL, and checksum.
+Homebrew installs Go as a build dependency. CI installs the formula from a local
+archive and tests both successful and unsuccessful configuration validation.
+
+The Nix definition is in `nix/package.nix`, exposed through `flake.nix`.
+The nixpkgs input uses the 26.05 stable branch to retain Intel macOS support.
+After changing Go dependencies, build with `vendorHash = lib.fakeHash` once and
+replace it with the actual hash reported by Nix, then run `nix flake check`.
+Run `nix flake update nixpkgs` to refresh the pinned build tools in `flake.lock`.
+`nix fmt flake.nix nix/package.nix` formats the definitions. Nix builds need no
+publishing credentials; a shared binary cache is optional and is not configured.

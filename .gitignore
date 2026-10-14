@@ -1,6 +1,8 @@
 cumulus-schema
 /nvueschema
 /dist/
+/result
+/result-*
 *.json
 !/testdata/schema-versions.json
 

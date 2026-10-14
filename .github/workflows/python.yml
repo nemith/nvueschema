@@ -34,6 +34,11 @@ defaults:
     working-directory: python
 
 jobs:
+  package-managers:
+    uses: ./.github/workflows/package-managers.yml
+    with:
+      ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+
   go-release:
     name: Go release compatibility
     runs-on: ubuntu-24.04
@@ -188,7 +193,7 @@ jobs:
   publish-binaries:
     name: Attach CLI binaries to GitHub release
     if: github.event_name == 'release'
-    needs: [go-release, binaries, models, native]
+    needs: [go-release, binaries, models, native, package-managers]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -204,10 +209,56 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: gh release upload "$RELEASE_TAG" dist/* --clobber
 
+  publish-homebrew:
+    name: Update Homebrew tap
+    if: github.event_name == 'release' && !github.event.release.prerelease && !contains(github.event.release.tag_name, '-')
+    needs: publish-binaries
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Check tap publishing credentials
+        env:
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [[ -z "$TAP_KEY" ]]; then
+            echo 'Set HOMEBREW_TAP_DEPLOY_KEY to a write-enabled deploy key for nemith/homebrew-tap.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          repository: nemith/homebrew-tap
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+      - name: Generate release formula
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/nemith/nvueschema/archive/refs/tags/$RELEASE_TAG.tar.gz" \
+            --output "$RUNNER_TEMP/nvueschema.tar.gz"
+          python3 packaging/homebrew/render.py "$RELEASE_TAG" "$RUNNER_TEMP/nvueschema.tar.gz" \
+            homebrew-tap/Formula/nvueschema.rb --only-newer
+      - name: Commit formula update
+        working-directory: homebrew-tap
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Formula/nvueschema.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "nvueschema $RELEASE_TAG"
+            git push origin HEAD
+          fi
+
   publish:
     name: Publish ${{ matrix.package }}
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi')
-    needs: [go-release, binaries, models, native]
+    needs: [go-release, binaries, models, native, package-managers]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
