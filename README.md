@@ -349,14 +349,20 @@ embedded release version. These binaries do not require Python or Go installed.
 GoReleaser builds them with cgo disabled. PRs and ordinary pushes build snapshot
 archives as CI artifacts without uploading them to a GitHub release.
 
-For a trial upload, create and push the tag first, then manually run **Python
-packages** with `publish=testpypi` and `tag=v0.1.0`. Once it succeeds, publish a
-GitHub release using that same tag to publish to PyPI.
+For a trial upload before merging, push a prerelease tag pointing at the PR
+commit, such as `v0.1.0-alpha.1`. Alpha, beta, and RC tag pushes build, test, and
+publish both packages to **TestPyPI**. They do not create a GitHub release or
+update the Homebrew tap. Use a new prerelease number for each changed build;
+TestPyPI does not allow replacing uploaded files.
+
+After this workflow is on `main`, you can also manually run **Python packages**
+with `publish=testpypi` and an existing `tag`, such as `v0.1.0`. Publishing a
+GitHub release using that same tag publishes to production PyPI.
 
 Prerelease tags use `v0.2.0-alpha.1`, `v0.2.0-beta.1`, or `v0.2.0-rc.1`; these
 become Python versions `0.2.0a1`, `0.2.0b1`, and `0.2.0rc1`. Publishing a GitHub
 prerelease also publishes to PyPI, so use a prerelease tag rather than relying
-only on GitHub's prerelease checkbox. Draft releases, ordinary pushes, and PRs
+only on GitHub's prerelease checkbox. Draft releases, branch pushes, and PRs
 do not publish. Package versions are independent of NVUE schema versions.
 
 ### Homebrew and Nix maintenance

@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*-alpha.*', 'v*-beta.*', 'v*-rc.*']
   release:
     types: [published]
   workflow_dispatch:
@@ -26,7 +27,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
 defaults:
   run:
@@ -96,7 +97,7 @@ jobs:
           uv run --no-sync pytest -q tests/test_release.py
       - name: Set package versions from release tag
         env:
-          PUBLISH_REQUESTED: ${{ github.event_name == 'release' || inputs.publish == 'testpypi' }}
+          PUBLISH_REQUESTED: ${{ github.event_name == 'release' || inputs.publish == 'testpypi' || (github.event_name == 'push' && github.ref_type == 'tag') }}
         run: |
           if [[ "$PUBLISH_REQUESTED" == "true" && -z "$RELEASE_TAG" ]]; then
             echo "Publishing requires a release tag." >&2
@@ -259,7 +260,7 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.package }}
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi')
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi') || (github.event_name == 'push' && github.ref_type == 'tag')
     needs: [go-release, binaries, models, native, package-managers]
     runs-on: ubuntu-24.04
     strategy:
