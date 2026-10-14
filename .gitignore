@@ -2,3 +2,15 @@ cumulus-schema
 /nvueschema
 *.json
 !/testdata/schema-versions.json
+
+# Python workspace and build products
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+/python/dist/
+/python/.cache/
+/python/nvueschema/src/nvueschema/models/v[0-9]*.py
+/python/nvueschema/src/nvueschema/models/_versions.py
+/python/nvueschema-native/src/nvueschema_native/bin/

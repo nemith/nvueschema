@@ -15,7 +15,10 @@ func loadConfig(path, format string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseConfig(data, path, format)
+}
 
+func parseConfig(data []byte, path, format string) (any, error) {
 	ext := strings.ToLower(format)
 	if ext == "" {
 		ext = strings.ToLower(filepath.Ext(path))

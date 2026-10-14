@@ -155,3 +155,74 @@ configuration schema and its references, not the entire OpenAPI document.
 Failures in any generator, including YANG, are reported normally, not skipped
 or marked as expected successes. Generator follow-ups are tracked in
 [TODO.md](TODO.md).
+
+## Python packages (uv)
+
+The Python packages are developed in this repository with a shared uv workspace
+and lockfile under `python/`. `nvueschema` contains generated Pydantic models;
+the `full` extra adds `nvueschema-native`, which bundles the Go validator. The first PyPI release
+must be published before the registry install commands below are available.
+
+```sh
+uv add nvueschema
+# Or include the Go backend, without installing Go locally:
+uv add 'nvueschema[full]'
+```
+
+```python
+from nvueschema.models.v5_16 import NvueConfig
+from nvueschema import Validator
+
+config = {"interface": {"swp1": {"link": {"mtu": 1500}}}}
+model = NvueConfig.model_validate(config)
+Validator(version="5.16").validate(config)
+# Offline: Validator(spec="openapi-5.16.json").validate(config)
+```
+
+Models ship for all releases in `testdata/schema-versions.json` and need no
+runtime downloads. They provide Pydantic's convenient typed representation;
+composite schemas, coercion, extra fields, and regex semantics can differ from
+the Go validator. Installing `full` does not change model behavior. Validate
+original input with the Go-backed API when exact CLI behavior is needed.
+`validate_many(configs)` returns ordered results and compiles the schema once
+per batch. See [the Python API documentation](python/nvueschema/README.md).
+
+Development requires uv and Go. Generate the models, then install both workspace
+packages and the test tools:
+
+```sh
+cd python
+uv run --no-project python scripts/prepare_models.py
+uv sync --locked --all-packages --all-extras
+uv run --all-packages --all-extras pytest
+uv run --all-packages --all-extras ruff check .
+uv run --all-packages --all-extras ruff format --check .
+uv build --all-packages
+uv run --no-project python scripts/test_wheels.py
+uv run --no-project python scripts/test_wheels.py --full
+```
+
+Generated models and downloaded schemas are build products, not checked-in
+source. Generation verifies the existing manifest's SHA256 checksums before
+using either downloaded or cached schemas. Pass `--spec-dir PATH` to use an
+existing schema directory without downloading. Standard package builds fail if
+models have not been generated; editable installs allow generation afterward.
+Hatchling supplies the wheel build hooks, while uv manages environments,
+dependencies, builds, and publishing. Both source distributions are standalone:
+the base includes generated models, and the native package includes Go sources.
+
+The Python packages workflow tests default installs and native wheels on Linux
+x86_64/aarch64, macOS x86_64/arm64, and Windows x86_64, using Python 3.10 and 3.14.
+Native wheels have no CPython extension ABI dependency. Source builds of the
+native package require Go. Linux wheels currently target glibc distributions.
+
+To release, keep both package versions and the `full` dependency pin in sync in
+`python/*/pyproject.toml`, then run `uv lock` from `python/`.
+Configure Trusted Publishing for
+**both** `nvueschema` and `nvueschema-native` on PyPI/TestPyPI using repository
+`nemith/nvueschema`, workflow `python.yml`, and GitHub environment `pypi` or
+`testpypi`. Configure those GitHub environments with any desired release approval
+rules. Manually dispatch **Python packages** with `publish=testpypi` to test a
+release, or `publish=pypi` to publish after all wheel tests succeed. Ordinary PR
+and push runs only build and test; they never publish. Package versions are
+independent of NVUE schema versions.

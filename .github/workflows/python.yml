@@ -1,0 +1,115 @@
+name: Python packages
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish tested distributions (requires Trusted Publishing setup)
+        type: choice
+        options: [none, testpypi, pypi]
+        default: none
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: python
+
+jobs:
+  models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: '0.13.0'
+          python-version: '3.10'
+      - name: Check Python source
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+      - uses: actions/cache@v6
+        with:
+          path: python/.cache/openapi-*.json
+          key: python-schemas-${{ hashFiles('testdata/schema-versions.json') }}
+      - name: Generate checksum-pinned release models
+        run: uv run --no-project python scripts/prepare_models.py
+      - name: Build portable package and source distributions
+        run: |
+          uv build --package nvueschema
+          uv build --package nvueschema-native --sdist
+      - name: Verify default install without native backend
+        run: |
+          uv run --no-project python scripts/test_wheels.py --python 3.10
+          uv run --no-project python scripts/test_wheels.py --python 3.14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-base-dist
+          path: python/dist/*
+
+  native:
+    needs: models
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: '0.13.0'
+          python-version: '3.10'
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-base-dist
+          path: python/dist
+      - name: Build native wheel
+        run: uv build --package nvueschema-native --wheel
+      - name: Test installed full extra
+        run: |
+          uv run --no-project python scripts/test_wheels.py --full --python 3.10
+          uv run --no-project python scripts/test_wheels.py --full --python 3.14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-${{ matrix.os }}-dist
+          path: python/dist/nvueschema_native-*.whl
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish != 'none'
+    needs: [models, native]
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.publish }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: '0.13.0'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: python-*-dist
+          merge-multiple: true
+          path: python/dist
+      - name: Publish with PyPI Trusted Publishing
+        env:
+          UV_PUBLISH_URL: ${{ inputs.publish == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+        run: uv publish --trusted-publishing always dist/*
