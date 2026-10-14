@@ -5,8 +5,16 @@ validator. Models cover the 5.x releases in the repository's version manifest.
 
 ```sh
 uv add nvueschema          # Pydantic models
-uv add 'nvueschema[full]'  # Models and bundled Go validator; no Go install needed
+uv add 'nvueschema[cli]'  # Models and native CLI
+uv add 'nvueschema[full]' # Models, native CLI, and Go-backed validation
 ```
+
+The `cli` and `full` extras currently install the same binary package. Run
+`uv run nvueschema --help` in your project, or install with
+`pip install 'nvueschema[cli]'` in an activated virtual environment and run
+`nvueschema --help`. The installed command is the native executable itself.
+For the CLI alone, use `uv tool install nvueschema-binary` or
+`pip install nvueschema-binary`.
 
 ```python
 from nvueschema.models.v5_16 import NvueConfig

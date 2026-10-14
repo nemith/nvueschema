@@ -62,16 +62,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cli = [
+    { name = "nvueschema-binary" },
+]
 full = [
     { name = "nvueschema-binary" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "nvueschema-binary", marker = "extra == 'cli'", editable = "nvueschema-binary" },
     { name = "nvueschema-binary", marker = "extra == 'full'", editable = "nvueschema-binary" },
     { name = "pydantic", specifier = ">=2,<3" },
 ]
-provides-extras = ["full"]
+provides-extras = ["cli", "full"]
 
 [[package]]
 name = "nvueschema-binary"

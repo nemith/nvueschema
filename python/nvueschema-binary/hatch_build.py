@@ -74,4 +74,6 @@ class CustomBuildHook(BuildHookInterface):
         )
         build_data["pure_python"] = False
         build_data["tag"] = "py3-none-" + tags[system, arch]
-        build_data["artifacts"].append("src/nvueschema_binary/bin/*")
+        # Wheel installers place this native executable directly in bin/Scripts.
+        # Keep a single copy, shared by the CLI and the Python validation API.
+        build_data["shared_scripts"][str(target)] = target.name

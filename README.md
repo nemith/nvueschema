@@ -8,9 +8,8 @@ This tool exists because the only schema Nvidia provides is a full OpenAPI spec 
 
 ## Install
 
-Choose Go, Python (pip or uv), Homebrew, or Nix below. Go, Homebrew, and Nix
-install the CLI; the Python packages provide Pydantic models and an optional
-Go-backed validation API.
+Choose Go, Python (pip or uv), Homebrew, or Nix below. All four can install the
+CLI; the Python packages also provide Pydantic models and a validation API.
 
 Standalone CLI archives are also available from [GitHub Releases](https://github.com/nemith/nvueschema/releases)
 once the first release is published. Download the archive for your OS
@@ -40,7 +39,8 @@ pip install nvueschema
 uv add nvueschema
 ```
 
-For the full validation API, include the bundled Go backend:
+To add the CLI to the models, use `pip install 'nvueschema[cli]'` or
+`uv add 'nvueschema[cli]'`. For the full validation API and CLI:
 
 ```sh
 pip install 'nvueschema[full]'
@@ -48,9 +48,21 @@ pip install 'nvueschema[full]'
 uv add 'nvueschema[full]'
 ```
 
-Supported wheels require no local Go installation. The backend is used through
-the Python API; these packages do not currently install an `nvueschema` command
-on your `PATH`. See [Python usage and development](#python-packages-uv).
+For just the CLI, without Pydantic models:
+
+```sh
+pip install nvueschema-binary
+# Or install as a standalone uv tool:
+uv tool install nvueschema-binary
+nvueschema --help
+```
+
+The binary package installs the native executable directly into your Python
+environment's `bin` directory (`Scripts` on Windows). Activate your virtual
+environment or put that directory on `PATH`; in a uv project, use
+`uv run nvueschema --help`. Supported wheels require no local Go installation.
+The `cli` and `full` extras currently install the same backend, which serves
+both the command and the Python API. See [Python usage and development](#python-packages-uv).
 
 ### Homebrew
 
@@ -228,7 +240,8 @@ or marked as expected successes. Generator follow-ups are tracked in
 
 The Python packages are developed in this repository with a shared uv workspace
 and lockfile under `python/`. `nvueschema` contains generated Pydantic models;
-the `full` extra adds `nvueschema-binary`, which bundles the Go validator. The first PyPI release
+the `cli` and `full` extras add `nvueschema-binary`, which installs the native
+CLI and supplies the Go validator. The first PyPI release
 must be published before the registry install commands below are available.
 
 ```sh
@@ -268,6 +281,8 @@ uv run --all-packages --all-extras ruff format --check .
 uv build --all-packages
 uv run --no-project python scripts/test_wheels.py
 uv run --no-project python scripts/test_wheels.py --full
+uv run --no-project python scripts/test_wheels.py --cli --installer pip
+uv run --no-project python scripts/test_wheels.py --binary
 ```
 
 Generated models and downloaded schemas are build products, not checked-in
@@ -286,7 +301,7 @@ native package require Go. Linux wheels currently target glibc distributions.
 
 Release versions come from GitHub release tags. Publishing a release tagged
 `v0.1.0` builds and publishes both Python packages as `0.1.0`. CI sets both package
-versions and the exact `full` dependency pin in its build checkout; no version
+versions and the exact `cli`/`full` dependency pins in its build checkout; no version
 edits or lockfile updates need to be committed for a release. The versions in the
 checked-in package metadata are defaults for local development builds.
 

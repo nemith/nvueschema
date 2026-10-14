@@ -152,10 +152,12 @@ jobs:
           path: python/dist
       - name: Build native wheel
         run: uv build --package nvueschema-binary --wheel
-      - name: Test installed full extra
+      - name: Test installed API and native CLI
         run: |
           uv run --no-project python scripts/test_wheels.py --full --python 3.10
           uv run --no-project python scripts/test_wheels.py --full --python 3.14
+          uv run --no-project python scripts/test_wheels.py --cli --installer pip --python 3.10
+          uv run --no-project python scripts/test_wheels.py --binary --python 3.10
       - uses: actions/upload-artifact@v7
         with:
           name: python-${{ matrix.os }}-dist

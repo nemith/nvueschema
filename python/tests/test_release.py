@@ -28,7 +28,8 @@ def test_stamp_release(tmp_path, tag, expected):
         text = (tmp_path / package / "pyproject.toml").read_text()
         assert f'version = "{expected}"' in text
     base = (tmp_path / "nvueschema/pyproject.toml").read_text()
-    assert f'"nvueschema-binary=={expected}"' in base
+    assert f'cli = ["nvueschema-binary=={expected}"]' in base
+    assert f'full = ["nvueschema-binary=={expected}"]' in base
     assert 'dependencies = ["pydantic>=2,<3"]' in base
 
 
