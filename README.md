@@ -255,7 +255,16 @@ To release:
 2. Open GitHub **Releases → Draft a new release** and choose a new tag such as
    `v0.1.0`, targeting the commit you want to ship. Add release notes.
 3. Click **Publish release**. The **Python packages** workflow checks out the
-   tagged commit, builds and tests the distributions, then publishes to PyPI.
+   tagged commit, builds and tests the distributions, then publishes to PyPI
+   and attaches CLI archives to the GitHub release.
+
+GitHub releases include standalone `nvueschema` binaries for Linux, macOS
+(`darwin`), and Windows, each on amd64 and arm64. Linux and macOS use `.tar.gz`;
+Windows uses `.zip`. Each archive includes the license and README, and a SHA-256
+checksums file covers all six archives. Run `nvueschema --version` to see the
+embedded release version. These binaries do not require Python or Go installed.
+GoReleaser builds them with cgo disabled. PRs and ordinary pushes build snapshot
+archives as CI artifacts without uploading them to a GitHub release.
 
 For a trial upload, create and push the tag first, then manually run **Python
 packages** with `publish=testpypi` and `tag=v0.1.0`. Once it succeeds, publish a

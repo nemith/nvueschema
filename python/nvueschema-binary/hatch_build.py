@@ -63,7 +63,7 @@ class CustomBuildHook(BuildHookInterface):
                 "build",
                 "-trimpath",
                 "-buildvcs=false",
-                "-ldflags=-s -w",
+                f"-ldflags=-s -w -X main.version={self.metadata.version}",
                 "-o",
                 str(target),
                 "./cmd/nvueschema",

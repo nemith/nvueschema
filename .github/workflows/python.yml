@@ -156,10 +156,58 @@ jobs:
           name: python-${{ matrix.os }}-dist
           path: python/dist/nvueschema_binary-*.whl
 
+  binaries:
+    name: Build CLI release archives
+    needs: go-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Test Go packages
+        working-directory: .
+        run: go test ./...
+      - name: Build and archive CLI binaries
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.3
+          args: release --clean --skip=publish ${{ github.event_name != 'release' && '--snapshot' || '' }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-dist
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*_checksums.txt
+
+  publish-binaries:
+    name: Attach CLI binaries to GitHub release
+    if: github.event_name == 'release'
+    needs: [go-release, binaries, models, native]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-dist
+          path: dist
+      - name: Upload archives and checksums
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
+
   publish:
     name: Publish ${{ matrix.package }}
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi')
-    needs: [go-release, models, native]
+    needs: [go-release, binaries, models, native]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
