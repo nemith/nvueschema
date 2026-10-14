@@ -95,6 +95,11 @@ func (c *converter) lower(n *syntax.RegexNode, tail []*syntax.RegexNode, depth i
 		return c.lower(n.Children[0], tail, depth+1)
 	case syntax.NtEmpty, syntax.NtUpdateBumpalong:
 		return atom("")
+	case syntax.NtResetCapture:
+		// Repeated ECMAScript groups clear captures before each iteration.
+		// This consumes nothing and cannot affect matching in our supported
+		// subset: backreferences and capture-dependent conditions are rejected.
+		return atom("")
 	case syntax.NtNothing:
 		return atom(noRune)
 	case syntax.NtBeginning, syntax.NtEnd:

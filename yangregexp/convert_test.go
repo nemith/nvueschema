@@ -26,6 +26,9 @@ var corpus = []string{
 	`^(?=ab)[a-z]+$`, `^(?=ab$).*$`, `^(?=a)(?!ab$)[a-z]+$`, `^(?=a(?=b)).*$`,
 	`^(?=(?!ab)[a-z]+$).*$`, `^((?!a$)[a-z]*)$`, `^a[^a]*b$`, `^(a*)*$`,
 	`^(?>a|b)c$`, `(?>ab|a)`, `^(?>a*)b$`, `^(?>a|ab)$`,
+	// Capture resets inside repetitions must remain zero-width during both
+	// conversion and the atomic continuation/fixed-length safety checks.
+	`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`, `^(?>a*)(bc)+$`, `^(?>(ab){2})c$`,
 }
 
 func allPatterns(t testing.TB) []string {
@@ -71,11 +74,12 @@ func sourceMatcher(t testing.TB, source string) *regexp2.Regexp {
 }
 
 func candidates() []string {
+	macs := []string{"00:11:22:aa:BB:ff", "00:11:22:aa:BB", "00:11:22:aa:BB:gg", "00:11:22:aa:BB:ff:00", "00:11:22:aa:BB:ff\n"}
 	values := []string{"", "none", "none\n", "none\r", "none\r\n", "nonex", "xnone", "disabled", "disabled\n", "ab", "abb", "abc", "bb", "bc", "cd", "abab", "ababc", "0xFFFF", "0x0000", "0xfffff", "N/A", "1.23", "01", "swp1", "bond.1", "root$", "rt 1:2", "rt\u00a01:2", "\"'", `^$.*+?()[]{}|\`, "AB", "😀😀", "é中", "!@#%&=,:;'\"<>/~`"}
 	for _, ch := range []rune{'\t', '\n', '\r', ' ', 0x7f, 0x85, 0xa0, 0x1680, 0x2000, 0x200b, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff, 'a', 'b', '0', '1', '9', '_', '-', '^', '$', '[', ']', '\\', 'é', '中', '😀', '٠', 0xd7ff, 0xe000, 0xfffd, 0x10000, 0x10ffff} {
 		values = append(values, string(ch), "a"+string(ch), string(ch)+"b", "a"+string(ch)+"b", "none"+string(ch))
 	}
-	return values
+	return append(values, macs...)
 }
 
 func TestDifferential(t *testing.T) {
@@ -141,6 +145,12 @@ func TestConvert(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
+	// Ignoring capture resets must not allow capture-dependent patterns.
+	for _, source := range []string{`^(a(b)?)+\2$`, `^(a)+(?(1)b|c)$`} {
+		if got, err := Convert(source); !errors.Is(err, ErrUnsupported) || got != nil {
+			t.Errorf("%q: got %+v, %v; want unsupported and no result", source, got, err)
+		}
+	}
 	for _, source := range []string{`(a)\1`, `(?<x>a)\k<x>`, `(?<=a)b`, `(?<!a)b`, `\ba\b`, `\Ba`, `(?m)^a$`, `a^b`, `a$b`, `(?=a)a`, `a(?=b)`, `^(a$)*$`, `^(?!a)(b$|c)`, `^(?!(?=a)b).*$`, `(?>a*)a`, `(?>ab|a)b`, `(a)?(?(1)b|c)`, `\Gx`, `a\Z`} {
 		t.Run(source, func(t *testing.T) {
 			got, err := Convert(source)
