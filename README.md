@@ -216,8 +216,12 @@ x86_64/aarch64, macOS x86_64/arm64, and Windows x86_64, using Python 3.10 and 3.
 Native wheels have no CPython extension ABI dependency. Source builds of the
 native package require Go. Linux wheels currently target glibc distributions.
 
-To release, keep both package versions and the `full` dependency pin in sync in
-`python/*/pyproject.toml`, then run `uv lock` from `python/`.
+Release versions come from GitHub release tags. Publishing a release tagged
+`v0.1.0` builds and publishes both Python packages as `0.1.0`. CI sets both package
+versions and the exact `full` dependency pin in its build checkout; no version
+edits or lockfile updates need to be committed for a release. The versions in the
+checked-in package metadata are defaults for local development builds.
+
 Configure Trusted Publishing for
 **both** `nvueschema` and `nvueschema-binary` on PyPI/TestPyPI using repository
 `nemith/nvueschema` and workflow `python.yml`, with these GitHub environments:
@@ -230,7 +234,21 @@ Configure Trusted Publishing for
 Each pending publisher needs a distinct configuration to create its project.
 Create the matching GitHub environments with any desired release approval rules.
 The workflow publishes each distribution in its own environment.
-Manually dispatch **Python packages** with `publish=testpypi` to test a
-release, or `publish=pypi` to publish after all wheel tests succeed. Ordinary PR
-and push runs only build and test; they never publish. Package versions are
-independent of NVUE schema versions.
+
+To release:
+
+1. Merge the changes to release.
+2. Open GitHub **Releases → Draft a new release** and choose a new tag such as
+   `v0.1.0`, targeting the commit you want to ship. Add release notes.
+3. Click **Publish release**. The **Python packages** workflow checks out the
+   tagged commit, builds and tests the distributions, then publishes to PyPI.
+
+For a trial upload, create and push the tag first, then manually run **Python
+packages** with `publish=testpypi` and `tag=v0.1.0`. Once it succeeds, publish a
+GitHub release using that same tag to publish to PyPI.
+
+Prerelease tags use `v0.2.0-alpha.1`, `v0.2.0-beta.1`, or `v0.2.0-rc.1`; these
+become Python versions `0.2.0a1`, `0.2.0b1`, and `0.2.0rc1`. Publishing a GitHub
+prerelease also publishes to PyPI, so use a prerelease tag rather than relying
+only on GitHub's prerelease checkbox. Draft releases, ordinary pushes, and PRs
+do not publish. Package versions are independent of NVUE schema versions.
