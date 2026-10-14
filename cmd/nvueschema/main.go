@@ -8,9 +8,12 @@ import (
 	"sort"
 	"strings"
 
-	"nemith.io/nvueschema"
 	"github.com/spf13/cobra"
+	"nemith.io/nvueschema"
 )
+
+// version is set by the release build.
+var version = "dev"
 
 // Format describes an output format and its options.
 type Format struct {
@@ -50,8 +53,9 @@ func main() {
 	var verbose bool
 
 	root := &cobra.Command{
-		Use:   "nvueschema",
-		Short: "Extract and generate config schemas from Cumulus Linux NVUE OpenAPI specs",
+		Use:     "nvueschema",
+		Short:   "Extract and generate config schemas from Cumulus Linux NVUE OpenAPI specs",
+		Version: version,
 		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			setVerbose(verbose)
 		},

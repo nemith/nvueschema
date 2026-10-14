@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nvueschema-binary"
+version = "0.1.0"
+description = "Native nvueschema CLI and Go validation backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+
+[project.urls]
+Repository = "https://github.com/nemith/nvueschema"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvueschema_binary"]
+exclude = ["src/nvueschema_binary/bin"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["src/nvueschema_binary/bin"]
+
+[tool.hatch.build.hooks.custom]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "hatch_build.py" },
+    { file = "src/**/*.py" },
+    { file = "../../go.mod" },
+    { file = "../../go.sum" },
+    { file = "../../*.go" },
+    { file = "../../cmd/nvueschema/*.go" },
+    { file = "../../yangregexp/*.go" },
+]

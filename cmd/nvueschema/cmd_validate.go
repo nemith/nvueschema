@@ -2,89 +2,105 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
-	"strings"
+	"io"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/spf13/cobra"
+	"nemith.io/nvueschema"
 )
 
+// Protocol 1 always returns one result per input configuration, in input order.
+type validationResult struct {
+	Valid  bool                         `json:"valid"`
+	Issues []nvueschema.ValidationIssue `json:"issues"`
+}
+type validationResponse struct {
+	Protocol int                `json:"protocol"`
+	Results  []validationResult `json:"results"`
+}
+
 func newValidateCmd() *cobra.Command {
-	var (
-		noCache   bool
-		configFmt string
-	)
-
+	var noCache, jsonOutput, batch bool
+	var configFmt string
 	cmd := &cobra.Command{
-		Use:   "validate <spec-or-version> <config-file>",
-		Short: "Validate a config file against the NVUE schema",
-		Long: strings.TrimSpace(`
-Validate a YAML or JSON config file against the NVUE configuration schema.
-
-The first argument is an OpenAPI spec file or a Cumulus Linux version
-(e.g. "5.16"), which will be fetched/cached automatically.
-
-The config file can be YAML or JSON (detected by extension, or
-use --config-format to override).
-
-Examples:
-  nvueschema validate 5.16 config.yaml
-  nvueschema validate 5.14 startup.json
-  nvueschema validate 5.14 config.txt --config-format yaml
-`),
-		Args: cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			ext, err := resolveSpec(args[0], noCache)
+		SilenceUsage: true,
+		Use:          "validate <spec-or-version> <config-file>",
+		Short:        "Validate a config file against the NVUE schema",
+		Long:         "Validate a YAML or JSON configuration against an NVUE spec file or version.\nUse - for stdin. With --batch, input is an array of configurations.\nUse --json for structured validation results (protocol version 1).",
+		Args:         cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if batch && !jsonOutput {
+				return errors.New("--batch requires --json")
+			}
+			parser, err := resolveSpec(args[0], noCache)
 			if err != nil {
 				return fmt.Errorf("loading spec: %w", err)
 			}
-
-			schema, err := ext.ConfigSchema()
+			config, err := parser.ConfigSchema()
 			if err != nil {
 				return fmt.Errorf("extracting config schema: %w", err)
 			}
-
-			jsDoc := schema.JSONSchemaDoc()
-
-			jsBytes, err := json.Marshal(jsDoc)
+			validator, err := nvueschema.NewValidator(config)
 			if err != nil {
-				return fmt.Errorf("marshaling schema: %w", err)
+				return err
 			}
-
-			var js any
-			if err := json.Unmarshal(jsBytes, &js); err != nil {
-				return fmt.Errorf("parsing schema: %w", err)
+			var instance any
+			if args[1] == "-" {
+				data, readErr := io.ReadAll(cmd.InOrStdin())
+				if readErr != nil {
+					return fmt.Errorf("reading stdin: %w", readErr)
+				}
+				instance, err = parseConfig(data, "stdin", configFmt)
+			} else {
+				instance, err = loadConfig(args[1], configFmt)
 			}
-
-			compiler := jsonschema.NewCompiler()
-			compiler.UseRegexpEngine(compilePattern)
-			const schemaURL = "https://nvueschema.invalid/config.json"
-			if err := compiler.AddResource(schemaURL, js); err != nil {
-				return fmt.Errorf("loading schema: %w", err)
-			}
-			resolved, err := compiler.Compile(schemaURL)
-			if err != nil {
-				return fmt.Errorf("resolving schema: %w", err)
-			}
-
-			instance, err := loadConfig(args[1], configFmt)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
-
-			if err := resolved.Validate(instance); err != nil {
-				fmt.Fprintf(os.Stderr, "Validation failed:\n%v\n", err)
-				os.Exit(1)
+			instances := []any{instance}
+			if batch {
+				var ok bool
+				instances, ok = instance.([]any)
+				if !ok {
+					return errors.New("--batch input must be an array of configurations")
+				}
 			}
-
-			fmt.Fprintln(os.Stderr, "Validation passed.")
+			response := validationResponse{Protocol: 1, Results: make([]validationResult, 0, len(instances))}
+			valid := true
+			for _, value := range instances {
+				result := validationResult{Valid: true, Issues: []nvueschema.ValidationIssue{}}
+				if err := validator.Validate(value); err != nil {
+					var invalid *nvueschema.ValidationError
+					if !errors.As(err, &invalid) {
+						return err
+					}
+					result.Valid, result.Issues, valid = false, invalid.Issues, false
+				}
+				response.Results = append(response.Results, result)
+			}
+			if jsonOutput {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(response); err != nil {
+					return err
+				}
+			} else if valid {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Validation passed.")
+			} else {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Validation failed:")
+				for _, issue := range response.Results[0].Issues {
+					fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s (%s)\n", issue.Path, issue.Message, issue.SchemaPath)
+				}
+			}
+			if !valid {
+				cmd.SilenceUsage, cmd.SilenceErrors = true, true
+				return errors.New("configuration validation failed")
+			}
 			return nil
 		},
 	}
-
-	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip cache entirely (don't read or write)")
-	cmd.Flags().StringVar(&configFmt, "config-format", "", "Config file format: yaml or json (default: auto-detect from extension)")
-
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Skip schema cache")
+	cmd.Flags().StringVar(&configFmt, "config-format", "", "Config file format: yaml or json (default: auto-detect)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Return machine-readable validation results")
+	cmd.Flags().BoolVar(&batch, "batch", false, "Validate an array of configurations using one compiled schema (requires --json)")
 	return cmd
 }
