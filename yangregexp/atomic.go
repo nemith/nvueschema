@@ -31,7 +31,7 @@ func disjointFirst(chars []interval, n *syntax.RegexNode) (bool, bool) {
 	switch n.T {
 	case syntax.NtMulti:
 		return len(intersect(chars, []interval{{First: n.Str[0], Last: n.Str[0]}})) == 0, false
-	case syntax.NtEmpty, syntax.NtBeginning, syntax.NtEnd, syntax.NtUpdateBumpalong:
+	case syntax.NtEmpty, syntax.NtBeginning, syntax.NtEnd, syntax.NtUpdateBumpalong, syntax.NtResetCapture:
 		return true, true
 	case syntax.NtNothing:
 		return true, false
@@ -72,7 +72,7 @@ func exactLength(n *syntax.RegexNode) (int, bool) {
 		return 1, true
 	case syntax.NtMulti:
 		return len(n.Str), true
-	case syntax.NtEmpty, syntax.NtBeginning, syntax.NtEnd, syntax.NtUpdateBumpalong:
+	case syntax.NtEmpty, syntax.NtBeginning, syntax.NtEnd, syntax.NtUpdateBumpalong, syntax.NtResetCapture:
 		return 0, true
 	case syntax.NtCapture, syntax.NtGroup, syntax.NtAtomic:
 		return exactLength(n.Children[0])
