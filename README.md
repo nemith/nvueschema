@@ -8,9 +8,51 @@ This tool exists because the only schema Nvidia provides is a full OpenAPI spec 
 
 ## Install
 
-```
+Choose Go, Python (pip or uv), Homebrew, or Nix below. Go, Homebrew, and Nix
+install the CLI; the Python packages provide Pydantic models and an optional
+Go-backed validation API.
+
+Standalone CLI archives are also available from [GitHub Releases](https://github.com/nemith/nvueschema/releases)
+once the first release is published. Download the archive for your OS
+(`linux`, `darwin` for macOS, or `windows`) and architecture (`amd64` or `arm64`),
+extract it, and put `nvueschema` (`nvueschema.exe` on Windows) on your `PATH`.
+These binaries require neither Go nor Python.
+
+### Go
+
+With Go installed:
+
+```sh
 go install nemith.io/nvueschema/cmd/nvueschema@latest
 ```
+
+Ensure your Go binary installation directory (`GOBIN`, or `$(go env GOPATH)/bin`
+by default) is on your `PATH`.
+
+### Python (pip or uv)
+
+Requires Python 3.10 or newer and the first PyPI release. Install Pydantic models
+in your Python environment:
+
+```sh
+pip install nvueschema
+# Or add to a uv project:
+uv add nvueschema
+```
+
+For the full validation API, include the bundled Go backend:
+
+```sh
+pip install 'nvueschema[full]'
+# Or add to a uv project:
+uv add 'nvueschema[full]'
+```
+
+Supported wheels require no local Go installation. The backend is used through
+the Python API; these packages do not currently install an `nvueschema` command
+on your `PATH`. See [Python usage and development](#python-packages-uv).
+
+### Homebrew
 
 After the packaging changes are merged and the first stable release is published,
 install the CLI through Homebrew on macOS or Linux:
@@ -19,7 +61,13 @@ install the CLI through Homebrew on macOS or Linux:
 brew install nemith/tap/nvueschema
 ```
 
-With Nix flakes enabled, run or install a specific release directly from GitHub:
+Homebrew builds the CLI from source and installs Go as a build dependency.
+
+### Nix
+
+With Nix flakes enabled, run or install a specific release directly from GitHub
+on Linux or macOS (amd64 and arm64). Replace `v0.1.0` with a published release
+containing the flake:
 
 ```sh
 nix run github:nemith/nvueschema/v0.1.0 -- --help
@@ -30,8 +78,7 @@ For local development, `nix build path:.` and `nix run path:. -- --help` include
 uncommitted files in the current checkout. Nix builds the CLI from source with
 pinned nixpkgs and Go dependencies
 on Linux and macOS (amd64 and arm64). Its version identifies the Git revision;
-tagged flake URLs pin that revision without a separate version bump. Neither
-Homebrew nor the Nix package installs the Python API.
+tagged flake URLs pin that revision without a separate version bump.
 
 ## Usage
 
