@@ -1,0 +1,29 @@
+class Nvueschema < Formula
+  desc "Generate NVUE schemas and validate Cumulus Linux configurations"
+  homepage "https://github.com/nemith/nvueschema"
+  url "@URL@"
+  version "@VERSION@"
+  sha256 "@SHA256@"
+  license "MIT"
+
+  depends_on "go" => :build
+
+  def install
+    ENV["CGO_ENABLED"] = "0"
+    system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=#{version}"), "./cmd/nvueschema"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/nvueschema --version")
+    (testpath/"schema.json").write <<~JSON
+      {"x-defs":{"cue-patch-schema-root-root":{
+        "type":"object","properties":{"mtu":{"type":"integer","minimum":552}}
+      }}}
+    JSON
+    (testpath/"valid.json").write '{"mtu":1500}'
+    (testpath/"invalid.json").write '{"mtu":-1}'
+    system bin/"nvueschema", "validate", "schema.json", "valid.json"
+    output = shell_output("#{bin}/nvueschema validate --json schema.json invalid.json 2>/dev/null", 1)
+    assert_equal false, JSON.parse(output).fetch("results").first.fetch("valid")
+  end
+end
