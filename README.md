@@ -160,7 +160,7 @@ or marked as expected successes. Generator follow-ups are tracked in
 
 The Python packages are developed in this repository with a shared uv workspace
 and lockfile under `python/`. `nvueschema` contains generated Pydantic models;
-the `full` extra adds `nvueschema-native`, which bundles the Go validator. The first PyPI release
+the `full` extra adds `nvueschema-binary`, which bundles the Go validator. The first PyPI release
 must be published before the registry install commands below are available.
 
 ```sh
@@ -219,7 +219,7 @@ native package require Go. Linux wheels currently target glibc distributions.
 To release, keep both package versions and the `full` dependency pin in sync in
 `python/*/pyproject.toml`, then run `uv lock` from `python/`.
 Configure Trusted Publishing for
-**both** `nvueschema` and `nvueschema-native` on PyPI/TestPyPI using repository
+**both** `nvueschema` and `nvueschema-binary` on PyPI/TestPyPI using repository
 `nemith/nvueschema`, workflow `python.yml`, and GitHub environment `pypi` or
 `testpypi`. Configure those GitHub environments with any desired release approval
 rules. Manually dispatch **Python packages** with `publish=testpypi` to test a

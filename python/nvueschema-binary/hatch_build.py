@@ -47,7 +47,7 @@ class CustomBuildHook(BuildHookInterface):
             raise RuntimeError(f"Unsupported native wheel platform: {system}/{machine}")
         target = (
             root
-            / "src/nvueschema_native/bin"
+            / "src/nvueschema_binary/bin"
             / ("nvueschema.exe" if system == "Windows" else "nvueschema")
         )
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -74,4 +74,4 @@ class CustomBuildHook(BuildHookInterface):
         )
         build_data["pure_python"] = False
         build_data["tag"] = "py3-none-" + tags[system, arch]
-        build_data["artifacts"].append("src/nvueschema_native/bin/*")
+        build_data["artifacts"].append("src/nvueschema_binary/bin/*")

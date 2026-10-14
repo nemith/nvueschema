@@ -79,7 +79,7 @@ class Validator:
         # serializing/coercing them and changing what is being validated.
         payload = json.dumps(configs, allow_nan=False)
         try:
-            from nvueschema_native import executable
+            from nvueschema_binary import executable
         except ImportError as exc:
             raise BackendUnavailableError(
                 'Full validation requires the Go backend: uv add "nvueschema[full]" '

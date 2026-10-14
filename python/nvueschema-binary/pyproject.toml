@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nvueschema-native"
+name = "nvueschema-binary"
 version = "0.1.0"
 description = "Bundled Go backend for nvueschema"
 readme = "README.md"
@@ -14,10 +14,10 @@ license = "MIT"
 Repository = "https://github.com/nemith/nvueschema"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/nvueschema_native"]
+packages = ["src/nvueschema_binary"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["src/nvueschema_native/bin"]
+exclude = ["src/nvueschema_binary/bin"]
 
 [tool.hatch.build.hooks.custom]
 

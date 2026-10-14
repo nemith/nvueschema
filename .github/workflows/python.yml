@@ -51,7 +51,7 @@ jobs:
       - name: Build portable package and source distributions
         run: |
           uv build --package nvueschema
-          uv build --package nvueschema-native --sdist
+          uv build --package nvueschema-binary --sdist
       - name: Verify default install without native backend
         run: |
           uv run --no-project python scripts/test_wheels.py --python 3.10
@@ -83,7 +83,7 @@ jobs:
           name: python-base-dist
           path: python/dist
       - name: Build native wheel
-        run: uv build --package nvueschema-native --wheel
+        run: uv build --package nvueschema-binary --wheel
       - name: Test installed full extra
         run: |
           uv run --no-project python scripts/test_wheels.py --full --python 3.10
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: python-${{ matrix.os }}-dist
-          path: python/dist/nvueschema_native-*.whl
+          path: python/dist/nvueschema_binary-*.whl
 
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish != 'none'

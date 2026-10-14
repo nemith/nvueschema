@@ -5,7 +5,7 @@ requires-python = ">=3.10"
 [manifest]
 members = [
     "nvueschema",
-    "nvueschema-native",
+    "nvueschema-binary",
 ]
 
 [manifest.dependency-groups]
@@ -63,20 +63,20 @@ dependencies = [
 
 [package.optional-dependencies]
 full = [
-    { name = "nvueschema-native" },
+    { name = "nvueschema-binary" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "nvueschema-native", marker = "extra == 'full'", editable = "nvueschema-native" },
+    { name = "nvueschema-binary", marker = "extra == 'full'", editable = "nvueschema-binary" },
     { name = "pydantic", specifier = ">=2,<3" },
 ]
 provides-extras = ["full"]
 
 [[package]]
-name = "nvueschema-native"
+name = "nvueschema-binary"
 version = "0.1.0"
-source = { editable = "nvueschema-native" }
+source = { editable = "nvueschema-binary" }
 
 [[package]]
 name = "packaging"

@@ -31,11 +31,11 @@ def spec(tmp_path):
 
 @pytest.fixture
 def native():
-    pytest.importorskip("nvueschema_native").executable()
+    pytest.importorskip("nvueschema_binary").executable()
 
 
 def test_missing_backend(monkeypatch, spec):
-    monkeypatch.setitem(sys.modules, "nvueschema_native", None)
+    monkeypatch.setitem(sys.modules, "nvueschema_binary", None)
     with pytest.raises(BackendUnavailableError, match=r"nvueschema\[full\]"):
         Validator(spec=spec).validate({})
 
@@ -95,7 +95,7 @@ def test_inputs(spec):
 def fake_backend(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
-        "nvueschema_native",
+        "nvueschema_binary",
         SimpleNamespace(executable=lambda: "/fake/backend"),
     )
 

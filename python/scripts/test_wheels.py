@@ -39,9 +39,9 @@ def main():
             check=True,
         )
         check = (
-            "from nvueschema_native import executable; assert executable().is_file()"
+            "from nvueschema_binary import executable; assert executable().is_file()"
             if args.full
-            else "import importlib.util; assert importlib.util.find_spec('nvueschema_native') is None"
+            else "import importlib.util; assert importlib.util.find_spec('nvueschema_binary') is None"
         )
         subprocess.run([str(python), "-c", check], cwd=directory, check=True)
         subprocess.run(

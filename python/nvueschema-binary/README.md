@@ -1,4 +1,4 @@
-# nvueschema-native
+# nvueschema-binary
 
 Bundled Go executable for the `nvueschema` Python package. Install through
 `uv add 'nvueschema[full]'`. This package contains no CPython extension and

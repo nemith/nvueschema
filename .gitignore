@@ -13,4 +13,4 @@ __pycache__/
 /python/.cache/
 /python/nvueschema/src/nvueschema/models/v[0-9]*.py
 /python/nvueschema/src/nvueschema/models/_versions.py
-/python/nvueschema-native/src/nvueschema_native/bin/
+/python/nvueschema-binary/src/nvueschema_binary/bin/
