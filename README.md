@@ -220,9 +220,17 @@ To release, keep both package versions and the `full` dependency pin in sync in
 `python/*/pyproject.toml`, then run `uv lock` from `python/`.
 Configure Trusted Publishing for
 **both** `nvueschema` and `nvueschema-binary` on PyPI/TestPyPI using repository
-`nemith/nvueschema`, workflow `python.yml`, and GitHub environment `pypi` or
-`testpypi`. Configure those GitHub environments with any desired release approval
-rules. Manually dispatch **Python packages** with `publish=testpypi` to test a
+`nemith/nvueschema` and workflow `python.yml`, with these GitHub environments:
+
+| Project | PyPI environment | TestPyPI environment |
+| --- | --- | --- |
+| `nvueschema` | `pypi` | `testpypi` |
+| `nvueschema-binary` | `pypi-binary` | `testpypi-binary` |
+
+Each pending publisher needs a distinct configuration to create its project.
+Create the matching GitHub environments with any desired release approval rules.
+The workflow publishes each distribution in its own environment.
+Manually dispatch **Python packages** with `publish=testpypi` to test a
 release, or `publish=pypi` to publish after all wheel tests succeed. Ordinary PR
 and push runs only build and test; they never publish. Package versions are
 independent of NVUE schema versions.

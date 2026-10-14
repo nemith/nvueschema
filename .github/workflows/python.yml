@@ -94,10 +94,21 @@ jobs:
           path: python/dist/nvueschema_binary-*.whl
 
   publish:
+    name: Publish ${{ matrix.package }}
     if: github.event_name == 'workflow_dispatch' && inputs.publish != 'none'
     needs: [models, native]
     runs-on: ubuntu-24.04
-    environment: ${{ inputs.publish }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: nvueschema
+            dist-prefix: nvueschema
+            environment-suffix: ''
+          - package: nvueschema-binary
+            dist-prefix: nvueschema_binary
+            environment-suffix: '-binary'
+    environment: ${{ format('{0}{1}', inputs.publish, matrix.environment-suffix) }}
     permissions:
       id-token: write
     steps:
@@ -112,4 +123,5 @@ jobs:
       - name: Publish with PyPI Trusted Publishing
         env:
           UV_PUBLISH_URL: ${{ inputs.publish == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
-        run: uv publish --trusted-publishing always dist/*
+          DIST_PREFIX: ${{ matrix.dist-prefix }}
+        run: uv publish --trusted-publishing always dist/"$DIST_PREFIX"-*.whl dist/"$DIST_PREFIX"-*.tar.gz
