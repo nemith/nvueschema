@@ -1,0 +1,292 @@
+name: Python packages
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*-alpha.*', 'v*-beta.*', 'v*-rc.*']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Test an existing tag on TestPyPI (PyPI publishing uses GitHub releases)
+        type: choice
+        options: [none, testpypi]
+        default: none
+      tag:
+        description: Existing release tag, e.g. v0.1.0 (required for TestPyPI)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: python
+
+jobs:
+  package-managers:
+    uses: ./.github/workflows/package-managers.yml
+    with:
+      ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+
+  go-release:
+    name: Go release compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Check exported Go API and release version
+        working-directory: .
+        run: |
+          args=()
+          if [[ -n "$RELEASE_TAG" ]]; then
+            # The real tag already exists. Check the same major/minor/patch
+            # using an unpublished prerelease to avoid "version already exists".
+            args+=("-version=${RELEASE_TAG%%-*}-0.gorelease")
+          fi
+          go run golang.org/x/exp/cmd/gorelease@v0.0.0-20260312153236-7ab1446f8b90 \
+            "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/gorelease.txt"
+      - name: Add Go compatibility report to workflow summary
+        if: always()
+        working-directory: .
+        run: |
+          if [[ -f "$RUNNER_TEMP/gorelease.txt" ]]; then
+            {
+              echo '### Go release compatibility'
+              echo '```text'
+              cat "$RUNNER_TEMP/gorelease.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.10'
+      - name: Check Python source
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+          uv run --no-sync pytest -q tests/test_release.py
+      - name: Set package versions from release tag
+        env:
+          PUBLISH_REQUESTED: ${{ github.event_name == 'release' || inputs.publish == 'testpypi' || (github.event_name == 'push' && github.ref_type == 'tag') }}
+        run: |
+          if [[ "$PUBLISH_REQUESTED" == "true" && -z "$RELEASE_TAG" ]]; then
+            echo "Publishing requires a release tag." >&2
+            exit 1
+          fi
+          if [[ -n "$RELEASE_TAG" ]]; then
+            uv run --no-project python scripts/set_release_version.py "$RELEASE_TAG"
+          fi
+      - uses: actions/cache@v6
+        with:
+          path: python/.cache/openapi-*.json
+          key: python-schemas-${{ hashFiles('testdata/schema-versions.json') }}
+      - name: Generate checksum-pinned release models
+        run: uv run --no-project python scripts/prepare_models.py
+      - name: Build portable package and source distributions
+        run: |
+          uv build --package nvueschema
+          uv build --package nvueschema-binary --sdist
+      - name: Verify default install without native backend
+        run: |
+          uv run --no-project python scripts/test_wheels.py --python 3.10
+          uv run --no-project python scripts/test_wheels.py --python 3.14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-base-dist
+          path: python/dist/*
+
+  native:
+    needs: models
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: '0.13.0'
+          python-version: '3.10'
+      - name: Set package versions from release tag
+        if: env.RELEASE_TAG != ''
+        run: uv run --no-project python scripts/set_release_version.py "$RELEASE_TAG"
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-base-dist
+          path: python/dist
+      - name: Build native wheel
+        run: uv build --package nvueschema-binary --wheel
+      - name: Test installed API and native CLI
+        run: |
+          uv run --no-project python scripts/test_wheels.py --full --python 3.10
+          uv run --no-project python scripts/test_wheels.py --full --python 3.14
+          uv run --no-project python scripts/test_wheels.py --cli --installer pip --python 3.10
+          uv run --no-project python scripts/test_wheels.py --binary --python 3.10
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-${{ matrix.os }}-dist
+          path: python/dist/nvueschema_binary-*.whl
+
+  binaries:
+    name: Build CLI release archives
+    needs: go-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Test Go packages
+        working-directory: .
+        run: go test ./...
+      - name: Build and archive CLI binaries
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.3
+          args: release --clean --skip=publish ${{ github.event_name != 'release' && '--snapshot' || '' }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-dist
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*_checksums.txt
+
+  publish-binaries:
+    name: Attach CLI binaries to GitHub release
+    if: github.event_name == 'release'
+    needs: [go-release, binaries, models, native, package-managers]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: cli-dist
+          path: dist
+      - name: Upload archives and checksums
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
+
+  publish-homebrew:
+    name: Update Homebrew tap
+    if: github.event_name == 'release' && !github.event.release.prerelease && !contains(github.event.release.tag_name, '-')
+    needs: publish-binaries
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Check tap publishing credentials
+        env:
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [[ -z "$TAP_KEY" ]]; then
+            echo 'Set HOMEBREW_TAP_DEPLOY_KEY to a write-enabled deploy key for nemith/homebrew-tap.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          repository: nemith/homebrew-tap
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+      - name: Generate release formula
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/nemith/nvueschema/archive/refs/tags/$RELEASE_TAG.tar.gz" \
+            --output "$RUNNER_TEMP/nvueschema.tar.gz"
+          python3 packaging/homebrew/render.py "$RELEASE_TAG" "$RUNNER_TEMP/nvueschema.tar.gz" \
+            homebrew-tap/Formula/nvueschema.rb --only-newer
+      - name: Commit formula update
+        working-directory: homebrew-tap
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Formula/nvueschema.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "nvueschema $RELEASE_TAG"
+            git push origin HEAD
+          fi
+
+  publish:
+    name: Publish ${{ matrix.package }}
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'testpypi') || (github.event_name == 'push' && github.ref_type == 'tag')
+    needs: [go-release, binaries, models, native, package-managers]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: nvueschema
+            dist-prefix: nvueschema
+            environment-suffix: ''
+          - package: nvueschema-binary
+            dist-prefix: nvueschema_binary
+            environment-suffix: '-binary'
+    environment: ${{ format('{0}{1}', github.event_name == 'release' && 'pypi' || 'testpypi', matrix.environment-suffix) }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: '0.13.0'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: python-*-dist
+          merge-multiple: true
+          path: python/dist
+      - name: Publish with PyPI Trusted Publishing
+        env:
+          UV_PUBLISH_URL: ${{ github.event_name == 'release' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+          DIST_PREFIX: ${{ matrix.dist-prefix }}
+        run: uv publish --trusted-publishing always dist/"$DIST_PREFIX"-*.whl dist/"$DIST_PREFIX"-*.tar.gz
