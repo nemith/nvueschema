@@ -1,0 +1,59 @@
+name: Package manager checks
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    name: Nix (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix flake check --no-update-lock-file --print-build-logs
+      - run: nix run --no-update-lock-file . -- --version
+
+  homebrew:
+    name: Homebrew (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: Homebrew/actions/setup-homebrew@f9676f1ffe2e1a720f81b2c54c51cfb99915ec14 # main
+      - name: Render and test the formula against this checkout
+        shell: bash
+        run: |
+          python3 -m unittest discover -s packaging/homebrew -v
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/nvueschema.tar.gz"
+          brew tap-new --no-git nvueschema/ci
+          tap_path="$(brew --repository)/Library/Taps/nvueschema/homebrew-ci"
+          python3 packaging/homebrew/render.py v0.0.0 "$RUNNER_TEMP/nvueschema.tar.gz" \
+            "$tap_path/Formula/nvueschema.rb" --source-url "file://$RUNNER_TEMP/nvueschema.tar.gz"
+          brew style nvueschema/ci/nvueschema
+          brew install --build-from-source nvueschema/ci/nvueschema
+          brew test nvueschema/ci/nvueschema
